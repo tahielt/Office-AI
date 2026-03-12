@@ -1,36 +1,80 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 🏢 AI Office — Mission Control
 
-## Getting Started
+Real-time AI agent operations center. Watch your agents code, research, analyze and think — live.
 
-First, run the development server:
+## ✨ Features
+
+- **4 AI Agents** with real-time status (coding, researching, analyzing, thinking)
+- **Live task feed** — tasks appear and complete in real time
+- **Agent inspector** — click any agent to see their terminal output
+- **System metrics** — tokens, requests/min, uptime
+- **Cyberpunk aesthetic** — scanlines, neon, dark ops center vibes
+
+## 🚀 Quick Start
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 🗂 Project Structure
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```
+src/
+├── app/
+│   ├── page.tsx          # Main layout
+│   └── globals.css       # Global styles + animations
+├── components/
+│   └── ui/
+│       ├── AgentDesk.tsx    # Individual agent card
+│       ├── AgentDetail.tsx  # Expanded agent view
+│       ├── TaskFeed.tsx     # Live task stream
+│       └── MetricsBar.tsx   # Top metrics bar
+├── hooks/
+│   └── useAgents.ts      # Agent state + simulation
+├── lib/
+│   └── agents.ts         # Agent data + config
+└── types/
+    └── agent.ts          # TypeScript types
+```
 
-## Learn More
+## 🔌 Connecting Real Agents
 
-To learn more about Next.js, take a look at the following resources:
+Replace the mock simulation in `hooks/useAgents.ts` with:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```typescript
+// Option A: Server-Sent Events
+const eventSource = new EventSource('/api/stream');
+eventSource.onmessage = (e) => {
+  const update = JSON.parse(e.data);
+  // update agent state
+};
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+// Option B: WebSocket
+const ws = new WebSocket(process.env.NEXT_PUBLIC_WS_URL!);
+ws.onmessage = (e) => {
+  const update = JSON.parse(e.data);
+  // update agent state
+};
+```
 
-## Deploy on Vercel
+## 📦 Adding 3D (Next Step)
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+1. Get character models from [quaternius.com](https://quaternius.com)
+2. Add animations from [mixamo.com](https://mixamo.com)
+3. Replace the 2D grid with a `<Canvas>` using `@react-three/fiber`
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## 🚢 Deploy
+
+```bash
+vercel --prod
+```
+
+## 🛠 Tech Stack
+
+- Next.js 15 (App Router)
+- Framer Motion
+- Tailwind CSS
+- TypeScript
