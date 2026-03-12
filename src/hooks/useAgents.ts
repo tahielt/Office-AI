@@ -118,6 +118,32 @@ export function useAgents() {
       }
     }
 
+    // Handle specifically the summon_all command to physically move agents
+    if (cmd.startsWith("/summon_all")) {
+      setAgents((prev) => 
+        prev.map(a => ({ ...a, isSummoned: true, animation: "walking" }))
+      );
+      // After walking to center (1s), change to idle/talking
+      setTimeout(() => {
+        setAgents((prev) => 
+          prev.map(a => ({ ...a, animation: a.id === "zion" ? "talking" : "idle" }))
+        );
+      }, 1000);
+    }
+    
+    // Handle dismissing agents back to their desks
+    if (cmd.startsWith("/dismiss")) {
+      setAgents((prev) => 
+        prev.map(a => ({ ...a, isSummoned: false, animation: "walking" }))
+      );
+      setTimeout(() => {
+        setAgents((prev) => 
+          prev.map(a => ({ ...a, animation: "idle" }))
+        );
+      }, 1000);
+      return; // Early return, no need to ask backend for a dismiss
+    }
+
     setAgents((prev) =>
       prev.map((agent) => {
         // If it's targeted at this agent, or it's a broadcast
@@ -139,7 +165,7 @@ export function useAgents() {
     if (targetId) {
       // Set to thinking
       setAgents((prev) =>
-        prev.map((a) => (a.id === targetId ? { ...a, status: "thinking" } : a))
+        prev.map((a) => (a.id === targetId ? { ...a, status: "thinking", animation: "thinking" } : a))
       );
 
       try {
@@ -222,7 +248,15 @@ export function useAgents() {
                 if (thoughtIdx > -1) logs[thoughtIdx].text = thoughtContent || "Processing...";
                 if (commIdx > -1) logs[commIdx].text = communicationContent || "...";
                 
-                return { ...agent, log: logs };
+                // Determine animation based on what the agent is currently generating
+                let currentAnimation = agent.animation;
+                if (inThoughtBox) {
+                  currentAnimation = "thinking";
+                } else if (communicationContent.length > 0) {
+                  currentAnimation = "typing";
+                }
+
+                return { ...agent, log: logs, animation: currentAnimation };
               }
               return agent;
             })
@@ -231,7 +265,7 @@ export function useAgents() {
 
         // Processing finished
         setAgents((prev) =>
-          prev.map((a) => (a.id === targetId ? { ...a, status: "idle" } : a))
+          prev.map((a) => (a.id === targetId ? { ...a, status: "idle", animation: "idle" } : a))
         );
 
       } catch (error: any) {

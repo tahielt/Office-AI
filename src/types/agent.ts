@@ -17,12 +17,25 @@ export interface LogEntry {
   timestamp: Date;
 }
 
+export type AgentAnimation = 
+  | "typing" 
+  | "idle" 
+  | "walking" 
+  | "sitting" 
+  | "talking" 
+  | "thinking" 
+  | "clapping" 
+  | "drinking" 
+  | "pointing";
+
 export interface Agent {
   id: string;
   name: string;
   role: string;
   color: string;
   status: AgentStatus;
+  animation: AgentAnimation;
+  isSummoned: boolean;
   currentTask: string;
   tasksCompleted: number;
   tokensUsed: number;
