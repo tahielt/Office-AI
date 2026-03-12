@@ -11,7 +11,7 @@ const getProvider = () => {
     const google = createGoogleGenerativeAI({
       apiKey: process.env.GEMINI_API_KEY,
     });
-    return { model: google("gemini-2.5-flash") };
+    return { model: google("gemini-1.5-flash") };
   }
   
   if (process.env.OPENAI_API_KEY) {

@@ -1,19 +1,34 @@
 "use client";
 import { Agent } from "@/types/agent";
 import { STATUS_CONFIG } from "@/lib/agents";
+import { useState, useEffect } from "react";
 
 interface Props {
   agents: Agent[];
 }
 
 export default function AgentSidebar({ agents }: Props) {
+  const [time, setTime] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Set initial time
+    setTime(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+
+    // Update time every minute
+    const timer = setInterval(() => {
+      setTime(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+    }, 60000);
+
+    return () => clearInterval(timer);
+  }, []);
+
   return (
     <div className="w-[320px] shrink-0 h-full flex flex-col gap-4">
       {/* Sidebar Header */}
       <div className="retro-panel p-3 flex flex-col gap-1 uppercase bg-slate-900">
         <div className="text-[10px] font-mono text-cyan-400 tracking-widest flex items-center justify-between">
           <span>SYSTEM TIME</span>
-          <span>{new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+          <span>{time || "--:--"}</span>
         </div>
         <div className="h-0.5 bg-slate-700 w-full" />
         <div className="text-[11px] font-mono text-white/50 tracking-widest">

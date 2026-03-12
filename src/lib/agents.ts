@@ -16,9 +16,9 @@ export const INITIAL_AGENTS: Agent[] = [
     isSummoned: false,
     position: { x: 1, y: 1 },
     log: [
-      { id: "1", type: "system", text: "Fetching arxiv feed...", timestamp: new Date() },
-      { id: "2", type: "thought", text: "Found 38 relevant papers. Filtering by citation count...", timestamp: new Date() },
-      { id: "3", type: "communication", text: "@Apex I found the papers you need for the RL module.", timestamp: new Date() },
+      { id: "1", type: "system", text: "Fetching arxiv feed...", timestamp: new Date("2026-03-12T20:00:00Z") },
+      { id: "2", type: "thought", text: "Found 38 relevant papers. Filtering by citation count...", timestamp: new Date("2026-03-12T20:00:00Z") },
+      { id: "3", type: "communication", text: "@Apex I found the papers you need for the RL module.", timestamp: new Date("2026-03-12T20:00:00Z") },
     ],
   },
   {
@@ -36,9 +36,9 @@ export const INITIAL_AGENTS: Agent[] = [
     isSummoned: false,
     position: { x: 3, y: 1 },
     log: [
-      { id: "4", type: "system", text: "Reading auth/middleware.ts...", timestamp: new Date() },
-      { id: "5", type: "thought", text: "I should probably abstract this OAuth handler into a separate service.", timestamp: new Date() },
-      { id: "6", type: "communication", text: "@Vera Do you need me to adjust the analytics payload for the new auth flow?", timestamp: new Date() },
+      { id: "4", type: "system", text: "Reading auth/middleware.ts...", timestamp: new Date("2026-03-12T20:00:00Z") },
+      { id: "5", type: "thought", text: "I should probably abstract this OAuth handler into a separate service.", timestamp: new Date("2026-03-12T20:00:00Z") },
+      { id: "6", type: "communication", text: "@Vera Do you need me to adjust the analytics payload for the new auth flow?", timestamp: new Date("2026-03-12T20:00:00Z") },
     ],
   },
   {
@@ -56,9 +56,9 @@ export const INITIAL_AGENTS: Agent[] = [
     isSummoned: false,
     position: { x: 1, y: 3 },
     log: [
-      { id: "7", type: "system", text: "Loading dataset (84k rows)...", timestamp: new Date() },
-      { id: "8", type: "thought", text: "The variance in Q2 was high. I'll need to adjust the regression weights.", timestamp: new Date() },
-      { id: "9", type: "communication", text: "@Zion The forecast looks solid. Ready for your review.", timestamp: new Date() },
+      { id: "7", type: "system", text: "Loading dataset (84k rows)...", timestamp: new Date("2026-03-12T20:00:00Z") },
+      { id: "8", type: "thought", text: "The variance in Q2 was high. I'll need to adjust the regression weights.", timestamp: new Date("2026-03-12T20:00:00Z") },
+      { id: "9", type: "communication", text: "@Zion The forecast looks solid. Ready for your review.", timestamp: new Date("2026-03-12T20:00:00Z") },
     ],
   },
   {
@@ -76,9 +76,9 @@ export const INITIAL_AGENTS: Agent[] = [
     isSummoned: false,
     position: { x: 3, y: 3 },
     log: [
-      { id: "10", type: "system", text: "Comparing TAM estimates...", timestamp: new Date() },
-      { id: "11", type: "thought", text: "Regulatory analysis for LATAM reveals potential bottlenecks. Need input.", timestamp: new Date() },
-      { id: "12", type: "communication", text: "@Lyra Can you run a deep dive on Brazil's fintech regulations?", timestamp: new Date() },
+      { id: "10", type: "system", text: "Comparing TAM estimates...", timestamp: new Date("2026-03-12T20:00:00Z") },
+      { id: "11", type: "thought", text: "Regulatory analysis for LATAM reveals potential bottlenecks. Need input.", timestamp: new Date("2026-03-12T20:00:00Z") },
+      { id: "12", type: "communication", text: "@Lyra Can you run a deep dive on Brazil's fintech regulations?", timestamp: new Date("2026-03-12T20:00:00Z") },
     ],
   },
 ];

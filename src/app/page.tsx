@@ -6,12 +6,12 @@ import AgentSidebar from "@/components/ui/AgentSidebar";
 import Terminal from "@/components/ui/Terminal";
 
 export default function Home() {
-  const { agents, handleCommand } = useAgents();
+  const { agents, metrics, handleCommand } = useAgents();
 
   return (
     <main className="h-screen w-screen flex flex-col overflow-hidden jrpg-bg text-white font-sans text-sm selection:bg-cyan-500/30">
       {/* Top metrics bar */}
-      <MetricsBar metrics={{ totalTasks: NaN, activeTasks: NaN, tokensTotal: NaN, requestsPerMin: NaN, uptime: "System Online", status: "OK" }} />
+      <MetricsBar metrics={metrics} />
 
       {/* Main content area */}
       <div className="flex-1 flex flex-col overflow-hidden">
