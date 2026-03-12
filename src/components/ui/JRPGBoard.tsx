@@ -1,6 +1,7 @@
 "use client";
 import { Agent } from "@/types/agent";
 import { STATUS_CONFIG } from "@/lib/agents";
+import AgentSprite from "./AgentSprite";
 
 interface Props {
   agents: Agent[];
@@ -41,7 +42,7 @@ export default function JRPGBoard({ agents }: Props) {
         </div>
 
         {/* Render Desks and Agents */}
-        {agents.map((agent) => {
+        {agents.map((agent, index) => {
           const pos = DESK_POSITIONS[agent.id] || { top: "50%", left: "50%" };
           const statusInfo = STATUS_CONFIG[agent.status] || STATUS_CONFIG.idle;
           const isActive = agent.status !== "idle" && agent.status !== "done";
@@ -78,27 +79,17 @@ export default function JRPGBoard({ agents }: Props) {
               </div>
 
               {/* 2. The Agent (JRPG Pixel Sprite placeholder) */}
-              <div className="relative z-20 mb-[-12px]">
+              <div className="relative z-20 mb-[-12px] w-16 h-16 pointer-events-none">
                 {/* Simulated shadow */}
                 <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-8 h-3 bg-black/40 rounded-full blur-[2px] z-0" />
                 
-                {/* The Character Block */}
-                <div 
-                  className="relative z-10 w-12 h-14 bg-slate-800 rounded border-[3px] border-slate-900 flex flex-col items-center overflow-hidden animate-float"
-                  style={{
-                    boxShadow: `0 0 10px ${agent.color}40`,
-                    // randomize animation delay so they don't bounce in perfect sync
-                    animationDelay: `${Math.random() * 2}s`
-                  }}
-                >
-                  {/* Character Head/Hair */}
-                  <div className="w-10 h-6 mt-1 rounded-sm" style={{ backgroundColor: agent.color }} />
-                  {/* Character Eyes */}
-                  <div className="flex gap-1 mt-1 animate-blink">
-                    <div className="w-1.5 h-2 bg-white rounded-full flex justify-center"><div className="w-0.5 h-0.5 bg-black mt-0.5" /></div>
-                    <div className="w-1.5 h-2 bg-white rounded-full flex justify-center"><div className="w-0.5 h-0.5 bg-black mt-0.5" /></div>
-                  </div>
-                </div>
+                {/* Custom Agent Sprites */}
+                <AgentSprite
+                  id={agent.id}
+                  color={agent.color}
+                  isBlinking={true} 
+                  status={agent.status}
+                />
               </div>
 
               {/* 3. The Desk */}
