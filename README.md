@@ -1,80 +1,47 @@
-# 🏢 AI Office — Mission Control
+# Office AI: Oficina Virtual de Agentes Autónomos
 
-Real-time AI agent operations center. Watch your agents code, research, analyze and think — live.
+Este proyecto es una interfaz visual diseñada para monitorear y gestionar cuatro agentes de inteligencia artificial en tiempo real. La estética está inspirada en los RPG clásicos (JRPG) de 16-bits, combinando un tablero visual con una terminal de comandos técnica.
 
-## ✨ Features
+## Lo que hace el proyecto
 
-- **4 AI Agents** with real-time status (coding, researching, analyzing, thinking)
-- **Live task feed** — tasks appear and complete in real time
-- **Agent inspector** — click any agent to see their terminal output
-- **System metrics** — tokens, requests/min, uptime
-- **Cyberpunk aesthetic** — scanlines, neon, dark ops center vibes
+- **Tablero JRPG Interactivo**: Un mapa visual donde puedes ver a los agentes (Lyra, Apex, Vera y Zion) en sus estaciones de trabajo. Tienen animaciones de "vida" (respiración y parpadeo) y burbujas de diálogo que aparecen cuando están procesando tareas.
+- **Terminal de Comandos**: Un centro de control en la parte inferior donde puedes interactuar directamente con los agentes. Los logs están diferenciados por colores: sistema (verde), pensamientos internos (gris e itálica) y comunicación directa (según el color del agente).
+- **Panel de Estado Lateral**: Una barra lateral que muestra el progreso de las tareas, el uptime y el rol específico de cada agente sin necesidad de abrir menús adicionales.
+- **Simulación en Vivo**: Los agentes generan tareas y logs de forma autónoma para simular un entorno de trabajo real.
 
-## 🚀 Quick Start
+## Cómo empezar
 
-```bash
-npm install
-npm run dev
-```
+1. Instala las dependencias:
+   ```bash
+   npm install
+   ```
+2. Inicia el servidor de desarrollo:
+   ```bash
+   npm run dev
+   ```
+3. Abre [http://localhost:3000](http://localhost:3000) en tu navegador.
 
-Open [http://localhost:3000](http://localhost:3000)
+## Estructura de archivos principal
 
-## 🗂 Project Structure
+- `src/app/page.tsx`: Layout principal que organiza el tablero, la terminal y el panel lateral.
+- `src/components/ui/JRPGBoard.tsx`: El mapa visual con los agentes y sus animaciones CSS.
+- `src/components/ui/Terminal.tsx`: El sistema de logs e input de comandos.
+- `src/components/ui/AgentSidebar.tsx`: El panel derecho con los indicadores de progreso.
+- `src/hooks/useAgents.ts`: El "cerebro" que maneja el estado de los agentes y la lógica de las respuestas.
+- `src/lib/agents.ts`: Configuración inicial de los agentes y sus perfiles.
 
-```
-src/
-├── app/
-│   ├── page.tsx          # Main layout
-│   └── globals.css       # Global styles + animations
-├── components/
-│   └── ui/
-│       ├── AgentDesk.tsx    # Individual agent card
-│       ├── AgentDetail.tsx  # Expanded agent view
-│       ├── TaskFeed.tsx     # Live task stream
-│       └── MetricsBar.tsx   # Top metrics bar
-├── hooks/
-│   └── useAgents.ts      # Agent state + simulation
-├── lib/
-│   └── agents.ts         # Agent data + config
-└── types/
-    └── agent.ts          # TypeScript types
-```
+## Comandos del chat
 
-## 🔌 Connecting Real Agents
+Puedes interactuar con los agentes usando menciones o comandos globales:
+- `@NombreAgente [mensaje]`: Para enviar una instrucción a un agente específico (ej: `@Apex revisa el servidor`).
+- `/summon_all`: Envía una señal a todos los agentes simultáneamente.
+- `/report_status`: Genera una actualización del estado actual del sistema.
 
-Replace the mock simulation in `hooks/useAgents.ts` with:
+## Tecnologías utilizadas
 
-```typescript
-// Option A: Server-Sent Events
-const eventSource = new EventSource('/api/stream');
-eventSource.onmessage = (e) => {
-  const update = JSON.parse(e.data);
-  // update agent state
-};
-
-// Option B: WebSocket
-const ws = new WebSocket(process.env.NEXT_PUBLIC_WS_URL!);
-ws.onmessage = (e) => {
-  const update = JSON.parse(e.data);
-  // update agent state
-};
-```
-
-## 📦 Adding 3D (Next Step)
-
-1. Get character models from [quaternius.com](https://quaternius.com)
-2. Add animations from [mixamo.com](https://mixamo.com)
-3. Replace the 2D grid with a `<Canvas>` using `@react-three/fiber`
-
-## 🚢 Deploy
-
-```bash
-vercel --prod
-```
-
-## 🛠 Tech Stack
-
-- Next.js 15 (App Router)
+- Next.js 15
+- React
+- Tailwind CSS (para el diseño y animaciones pixel-art)
+- Lucide Icons
 - Framer Motion
-- Tailwind CSS
 - TypeScript
