@@ -10,7 +10,12 @@ interface Props {
 
 export default function Terminal({ agents, onCommand }: Props) {
   const [input, setInput] = useState("");
+  const [mounted, setMounted] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Combine and sort all logs from all agents to create a global feed
   const allLogs = agents
@@ -54,7 +59,7 @@ export default function Terminal({ agents, onCommand }: Props) {
         {allLogs.map((log) => (
           <div key={log.id} className="flex gap-3">
             <span className="text-slate-500 shrink-0 select-none">
-              [{log.timestamp.toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" })}]
+              [{mounted ? log.timestamp.toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "..."}]
             </span>
 
             {/* Render based on log type */}

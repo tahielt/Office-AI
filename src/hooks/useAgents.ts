@@ -47,37 +47,7 @@ export function useAgents() {
     lyra: 0, apex: 0, vera: 0, zion: 0,
   });
 
-  // Simulate log updates
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setAgents((prev) =>
-        prev.map((agent) => {
-          const lines = LOG_LINES[agent.id] || [];
-          const idx = logIndex[agent.id] ?? 0;
-          const next = (idx + 1) % lines.length;
-          const newLineTemplate = lines[next];
-          const newLine = {
-            id: crypto.randomUUID(),
-            type: newLineTemplate.type,
-            text: newLineTemplate.text,
-            timestamp: new Date(),
-          };
-          return {
-            ...agent,
-            log: [...agent.log.slice(-14), newLine],
-          };
-        })
-      );
-      setLogIndex((prev) => {
-        const updated: Record<string, number> = {};
-        for (const id in prev) {
-          updated[id] = (prev[id] + 1) % (LOG_LINES[id]?.length || 6);
-        }
-        return updated;
-      });
-    }, 2000);
-    return () => clearInterval(interval);
-  }, [logIndex]);
+  // Simulated log updates removed as we are now using the real Orchestrator API
 
   // Simulate task completions
   useEffect(() => {
@@ -130,76 +100,192 @@ export function useAgents() {
     setSelectedAgent(agent);
   }, []);
 
-  const handleCommand = useCallback((cmd: string) => {
-    // 1. Instantly add user's command as a system/communication message
-    const userLog = {
-      id: crypto.randomUUID(),
-      type: "communication" as const,
-      text: cmd,
-      timestamp: new Date(),
-    };
-
+  const handleCommand = useCallback(async (cmd: string) => {
     // Determine target agent (e.g. "@Lyra")
     const match = cmd.match(/^@(\w+)/);
     let targetId = match ? match[1].toLowerCase() : null;
 
-    // Validate target exists
     if (targetId && !agents.some(a => a.id === targetId)) {
       targetId = null;
+    }
+
+    // Fallbacks if user didn't specify an agent
+    if (!targetId) {
+      if (cmd.startsWith("/summon_all") || cmd.startsWith("/report_status")) {
+        targetId = "zion"; // The strategy agent handles global queries
+      } else {
+        targetId = "lyra"; // Default fallback
+      }
+    }
+
+    // Handle specifically the summon_all command to physically move agents
+    if (cmd.startsWith("/summon_all")) {
+      setAgents((prev) => 
+        prev.map(a => ({ ...a, isSummoned: true, animation: "walking" }))
+      );
+      // After walking to center (1s), change to idle/talking
+      setTimeout(() => {
+        setAgents((prev) => 
+          prev.map(a => ({ ...a, animation: a.id === "zion" ? "talking" : "idle" }))
+        );
+      }, 1000);
+    }
+    
+    // Handle dismissing agents back to their desks
+    if (cmd.startsWith("/dismiss")) {
+      setAgents((prev) => 
+        prev.map(a => ({ ...a, isSummoned: false, animation: "walking" }))
+      );
+      setTimeout(() => {
+        setAgents((prev) => 
+          prev.map(a => ({ ...a, animation: "idle" }))
+        );
+      }, 1000);
+      return; // Early return, no need to ask backend for a dismiss
     }
 
     setAgents((prev) =>
       prev.map((agent) => {
         // If it's targeted at this agent, or it's a broadcast
-        if (targetId === agent.id || (!targetId && cmd.startsWith("/summon_all"))) {
-          // Add the user log to this specific agent
-          const updatedLog = [...agent.log.slice(-14), userLog];
-          return { ...agent, log: updatedLog };
+        if (targetId === agent.id || cmd.startsWith("/") ) {
+          // Unique ID for each log to prevent React Key collisions
+          const userLog = {
+            id: crypto.randomUUID(),
+            type: "communication" as const,
+            text: cmd,
+            timestamp: new Date(),
+          };
+          return { ...agent, log: [...agent.log.slice(-14), userLog] };
         }
         return agent;
       })
     );
 
-    // 2. Simulate a response after 1.5 seconds
-    setTimeout(() => {
+    // If it's a known agent, let's call the real backend!
+    if (targetId) {
+      // Set to thinking
       setAgents((prev) =>
-        prev.map((agent) => {
-          if (targetId === agent.id || (!targetId && cmd.startsWith("/summon_all"))) {
-            const responses = [
-              "Acknowledged. Processing your request...",
-              `I'm on it. Evaluating: ${cmd.replace(/^@\w+/, "").trim()}`,
-              "Executing command sequence now.",
-              "Analyzing the parameters...",
-            ];
-            const responseText = responses[Math.floor(Math.random() * responses.length)];
-            const responseLog = {
-              id: crypto.randomUUID(),
-              type: "communication" as const,
-              text: responseText,
-              timestamp: new Date(),
-            };
-            return {
-              ...agent,
-              status: "thinking", // Change status briefly
-              log: [...agent.log.slice(-14), responseLog],
-            };
-          }
-          return agent;
-        })
+        prev.map((a) => (a.id === targetId ? { ...a, status: "thinking", animation: "thinking" } : a))
       );
-    }, 1500);
 
-    // Revert status after another 3 seconds
-    setTimeout(() => {
-      setAgents((prev) =>
-        prev.map((agent) => {
-          if (targetId === agent.id || (!targetId && cmd.startsWith("/summon_all"))) {
-            return { ...agent, status: "coding" }; // Defaulting back to active
+      try {
+        const res = await fetch("/api/orchestrator", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt: cmd, currentAgents: agents.map(a => ({id: a.id, name: a.name})) }),
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || "Failed to connect to the orchestrator");
+        }
+
+        if (!res.body) throw new Error("No readable stream");
+
+        // Prepare the response log object that we will update iteratively
+        const responseLogId = crypto.randomUUID();
+        const thoughtLogId = crypto.randomUUID();
+        
+        // Add empty placeholders initially
+        setAgents((prev) =>
+          prev.map((agent) => {
+            if (agent.id === targetId) {
+              return {
+                ...agent,
+                status: "coding", // Active processing
+                log: [
+                  ...agent.log.slice(-13), 
+                  { id: thoughtLogId, type: "thought", text: "", timestamp: new Date() },
+                  { id: responseLogId, type: "communication", text: "...", timestamp: new Date() }
+                ],
+              };
+            }
+            return agent;
+          })
+        );
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let fullText = "";
+        let inThoughtBox = false;
+        let thoughtContent = "";
+        let communicationContent = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          
+          // toTextStreamResponse streams raw text directly
+          const chunk = decoder.decode(value, { stream: true });
+          fullText += chunk;
+
+          // Robust parsing for <THOUGHT> tags (handles newlines and partials better)
+          const thoughtMatch = fullText.match(/<THOUGHT>([\s\S]*?)<\/THOUGHT>/i);
+          
+          if (thoughtMatch) {
+             inThoughtBox = true;
+             thoughtContent = thoughtMatch[1].trim();
+             // Whatever is after the closing tag is the actual communication
+             communicationContent = fullText.substring(thoughtMatch.index! + thoughtMatch[0].length).trim();
+          } else if (fullText.includes('<THOUGHT>')) {
+             // Still thinking... extract from opening tag to end
+             const startIndex = fullText.indexOf('<THOUGHT>') + 9; // length of <THOUGHT>
+             thoughtContent = fullText.substring(startIndex).trim();
+             communicationContent = ""; // Hasn't started talking yet
+          } else {
+             // No thought tags found at all, just normal communication
+             communicationContent = fullText.trim();
           }
-           return agent;
-        })
-      );
-    }, 4500);
+
+          // Update the specific logs in real time
+          setAgents((prev) =>
+            prev.map((agent) => {
+              if (agent.id === targetId) {
+                const logs = [...agent.log];
+                const thoughtIdx = logs.findIndex(l => l.id === thoughtLogId);
+                const commIdx = logs.findIndex(l => l.id === responseLogId);
+                
+                if (thoughtIdx > -1) logs[thoughtIdx].text = thoughtContent || "Processing...";
+                if (commIdx > -1) logs[commIdx].text = communicationContent || "...";
+                
+                // Determine animation based on what the agent is currently generating
+                let currentAnimation = agent.animation;
+                if (inThoughtBox) {
+                  currentAnimation = "thinking";
+                } else if (communicationContent.length > 0) {
+                  currentAnimation = "typing";
+                }
+
+                return { ...agent, log: logs, animation: currentAnimation };
+              }
+              return agent;
+            })
+          );
+        }
+
+        // Processing finished
+        setAgents((prev) =>
+          prev.map((a) => (a.id === targetId ? { ...a, status: "idle", animation: "idle" } : a))
+        );
+
+      } catch (error: any) {
+        // Handle Error rendering
+        const errorLog = {
+          id: crypto.randomUUID(),
+          type: "system" as const,
+          text: `ERR: ${error.message}`,
+          timestamp: new Date(),
+        };
+        setAgents((prev) =>
+          prev.map((agent) => {
+            if (agent.id === targetId) {
+              return { ...agent, status: "idle", log: [...agent.log.slice(-14), errorLog] };
+            }
+            return agent;
+          })
+        );
+      }
+    }
     
   }, [agents]);
 

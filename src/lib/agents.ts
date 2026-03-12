@@ -12,6 +12,8 @@ export const INITIAL_AGENTS: Agent[] = [
     tokensUsed: 2400000,
     uptime: "14d 6h",
     avatar: "LY",
+    animation: "idle",
+    isSummoned: false,
     position: { x: 1, y: 1 },
     log: [
       { id: "1", type: "system", text: "Fetching arxiv feed...", timestamp: new Date() },
@@ -30,6 +32,8 @@ export const INITIAL_AGENTS: Agent[] = [
     tokensUsed: 1800000,
     uptime: "7d 2h",
     avatar: "AX",
+    animation: "idle",
+    isSummoned: false,
     position: { x: 3, y: 1 },
     log: [
       { id: "4", type: "system", text: "Reading auth/middleware.ts...", timestamp: new Date() },
@@ -48,6 +52,8 @@ export const INITIAL_AGENTS: Agent[] = [
     tokensUsed: 3100000,
     uptime: "21d 4h",
     avatar: "VR",
+    animation: "idle",
+    isSummoned: false,
     position: { x: 1, y: 3 },
     log: [
       { id: "7", type: "system", text: "Loading dataset (84k rows)...", timestamp: new Date() },
@@ -66,6 +72,8 @@ export const INITIAL_AGENTS: Agent[] = [
     tokensUsed: 920000,
     uptime: "3d 11h",
     avatar: "ZN",
+    animation: "idle",
+    isSummoned: false,
     position: { x: 3, y: 3 },
     log: [
       { id: "10", type: "system", text: "Comparing TAM estimates...", timestamp: new Date() },
