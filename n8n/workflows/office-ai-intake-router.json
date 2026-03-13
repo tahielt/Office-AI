@@ -1,0 +1,64 @@
+{
+  "name": "Office AI - Intake Router",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger-intake",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [260, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "route-name",
+              "name": "route",
+              "value": "intake-router",
+              "type": "string"
+            },
+            {
+              "id": "max-leads",
+              "name": "maxLeads",
+              "value": "3",
+              "type": "string"
+            },
+            {
+              "id": "response-mode",
+              "name": "responseMode",
+              "value": "rapid-or-deep",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "normalize-payload",
+      "name": "Normalize Payload",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [540, 300]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Normalize Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {},
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "active": false
+}

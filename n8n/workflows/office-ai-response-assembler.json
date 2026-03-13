@@ -1,0 +1,58 @@
+{
+  "name": "Office AI - Response Assembler",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger-assembler",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [260, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "stage",
+              "name": "stage",
+              "value": "response-assembler",
+              "type": "string"
+            },
+            {
+              "id": "goal",
+              "name": "goal",
+              "value": "consolidar lanes y devolver a ARIA",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "assemble-response",
+      "name": "Assemble Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [540, 300]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Assemble Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {},
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "active": false
+}

@@ -1,0 +1,58 @@
+{
+  "name": "Office AI - Specialist Runner",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger-runner",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [260, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "stage",
+              "name": "stage",
+              "value": "specialist-runner",
+              "type": "string"
+            },
+            {
+              "id": "goal",
+              "name": "goal",
+              "value": "ejecutar squads por lane con retries",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "run-specialists",
+      "name": "Run Specialists",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [540, 300]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Run Specialists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {},
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "active": false
+}
