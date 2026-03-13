@@ -267,7 +267,7 @@ export default function Terminal({ agents, onCommand }: Props) {
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="@scout analizar mercado de turismo en Bariloche..."
+              placeholder="Hablá con @aria o asigná tareas a tus agentes..."
               className="flex-1 bg-transparent font-mono text-[12px] focus:outline-none placeholder:text-white/20"
               style={{ color: "#e2e8f0" }}
             />

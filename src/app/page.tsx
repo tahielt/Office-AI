@@ -22,7 +22,7 @@ export default function Home() {
         <div className="flex-1 flex min-h-0 gap-0">
 
           {/* Board — ocupa todo el espacio restante */}
-          <div className="flex-1 p-3 pb-0 min-w-0">
+          <div className="flex-1 p-3 pb-0 min-w-0 flex flex-col">
             <JRPGBoard agents={agents} />
           </div>
 

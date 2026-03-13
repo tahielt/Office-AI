@@ -173,41 +173,57 @@ export function useAgents() {
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let fullText = "";
-      let thoughtContent = "";
-      let communicationContent = "";
-
+      
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        fullText += decoder.decode(value, { stream: true });
+        const chunk = decoder.decode(value, { stream: true });
+        // En Next.js App Router con streamText, los chunks de texto llegan con el prefix '0:'
+        // Ej: 0:"Hola mundo"\n
+        const lines = chunk.split('\n');
+        
+        for (const line of lines) {
+          if (line.startsWith('0:')) {
+            try {
+              // Extraer el string JSON parseable
+              const textChunk = JSON.parse(line.slice(2));
+              fullText += textChunk;
+              
+              let thoughtContent = "";
+              let communicationContent = "";
 
-        // Parsear tags <THOUGHT>
-        const thoughtMatch = fullText.match(/<THOUGHT>([\s\S]*?)<\/THOUGHT>/i);
+              // Parsear tags <THOUGHT>
+              const thoughtMatch = fullText.match(/<THOUGHT>([\s\S]*?)<\/THOUGHT>/i);
 
-        if (thoughtMatch) {
-          thoughtContent = thoughtMatch[1].trim();
-          communicationContent = fullText.substring(thoughtMatch.index! + thoughtMatch[0].length).trim();
-        } else if (fullText.includes("<THOUGHT>")) {
-          thoughtContent = fullText.substring(fullText.indexOf("<THOUGHT>") + 9).trim();
-          communicationContent = "";
-        } else {
-          communicationContent = fullText.trim();
+              if (thoughtMatch) {
+                thoughtContent = thoughtMatch[1].trim();
+                communicationContent = fullText.substring(thoughtMatch.index! + thoughtMatch[0].length).trim();
+              } else if (fullText.includes("<THOUGHT>")) {
+                thoughtContent = fullText.substring(fullText.indexOf("<THOUGHT>") + 9).trim();
+                communicationContent = "";
+              } else {
+                communicationContent = fullText.trim();
+              }
+
+              // Actualizar logs en tiempo real
+              setAgents((prev) =>
+                prev.map((agent) => {
+                  if (agent.id !== targetId) return agent;
+                  const logs = [...agent.log];
+                  const ti = logs.findIndex(l => l.id === thoughtLogId);
+                  const ci = logs.findIndex(l => l.id === responseLogId);
+                  if (ti > -1) logs[ti] = { ...logs[ti], text: thoughtContent || "Procesando..." };
+                  if (ci > -1) logs[ci] = { ...logs[ci], text: communicationContent || "..." };
+                  const animation = communicationContent.length > 0 ? "typing" : "thinking";
+                  return { ...agent, log: logs, animation };
+                })
+              );
+            } catch (e) {
+              // Ignorar parsing errors en chunks parciales
+            }
+          }
         }
-
-        // Actualizar logs en tiempo real
-        setAgents((prev) =>
-          prev.map((agent) => {
-            if (agent.id !== targetId) return agent;
-            const logs = [...agent.log];
-            const ti = logs.findIndex(l => l.id === thoughtLogId);
-            const ci = logs.findIndex(l => l.id === responseLogId);
-            if (ti > -1) logs[ti] = { ...logs[ti], text: thoughtContent || "Procesando..." };
-            if (ci > -1) logs[ci] = { ...logs[ci], text: communicationContent || "..." };
-            const animation = communicationContent.length > 0 ? "typing" : "thinking";
-            return { ...agent, log: logs, animation };
-          })
-        );
       }
 
       // Respuesta completa — volver a idle

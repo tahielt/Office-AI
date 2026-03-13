@@ -14,11 +14,12 @@ const DESK_POSITIONS: Record<string, { top: string; left: string }> = {
   vera:  { top: "70%", left: "12%" },
   echo:  { top: "70%", left: "36%" },
   zion:  { top: "70%", left: "63%" },
+  pulse: { top: "70%", left: "87%" },
 };
 
 const SUMMON_LEFT: Record<string, string> = {
   scout:"7%", apex:"20%", forge:"33%", vox:"46%",
-  vera:"59%", echo:"72%", zion:"85%",
+  vera:"59%", echo:"72%", zion:"85%", pulse:"93%"
 };
 
 function ScoutDesk() {
@@ -209,9 +210,28 @@ function ZionDesk() {
   );
 }
 
+function PulseDesk() {
+  return (
+    <svg width="140" height="80" viewBox="0 0 160 90" xmlns="http://www.w3.org/2000/svg">
+      <rect x="8" y="28" width="144" height="54" rx="3" fill="#180412" stroke="#ec4899" strokeWidth="0.8" strokeOpacity="0.4"/>
+      <rect x="30" y="8" width="100" height="44" rx="4" fill="#0d0107" stroke="#ec4899" strokeWidth="1.2" strokeOpacity="0.7"/>
+      <circle cx="80" cy="30" r="14" fill="none" stroke="#ec4899" strokeWidth="2" strokeOpacity="0.5"/>
+      <circle cx="80" cy="30" r="8" fill="#ec4899" fillOpacity="0.4">
+         <animate attributeName="r" values="8;12;8" dur="1.5s" repeatCount="indefinite"/>
+      </circle>
+      <path d="M 60 40 Q 80 10 100 40" fill="none" stroke="#ec4899" strokeWidth="1" strokeOpacity="0.6"/>
+      <circle cx="60" cy="40" r="2" fill="#00f5ff" fillOpacity="0.8"/>
+      <circle cx="100" cy="40" r="2" fill="#00ff88" fillOpacity="0.8"/>
+      <rect x="8" y="27" width="140" height="2" rx="1" fill="#ec4899" fillOpacity="0.15">
+        <animate attributeName="fillOpacity" values="0.15;0.35;0.15" dur="2s" repeatCount="indefinite"/>
+      </rect>
+    </svg>
+  );
+}
+
 const DESK_MAP: Record<string, React.ReactNode> = {
   scout:<ScoutDesk/>, apex:<ApexDesk/>, forge:<ForgeDesk/>, vox:<VoxDesk/>,
-  vera:<VeraDesk/>,   echo:<EchoDesk/>, zion:<ZionDesk/>,
+  vera:<VeraDesk/>,   echo:<EchoDesk/>, zion:<ZionDesk/>, pulse:<PulseDesk/>
 };
 
 export default function JRPGBoard({ agents }: Props) {
@@ -220,7 +240,7 @@ export default function JRPGBoard({ agents }: Props) {
   const ariaActive  = ariaAgent?.status !== "idle";
 
   return (
-    <div className="flex-1 w-full relative overflow-hidden flex items-center justify-center"
+    <div className="flex-1 w-full h-full relative overflow-hidden flex items-center justify-center"
       style={{ background:"linear-gradient(180deg,#0a0a0f 0%,#0d0d14 100%)" }}>
 
       <div className="absolute inset-0 pointer-events-none" style={{ boxShadow:"inset 0 0 80px rgba(0,0,0,0.7)" }}/>
