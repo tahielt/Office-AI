@@ -367,15 +367,59 @@ function buildOracleAriaRouter(agentIdMap) {
       `const payload = $json.body && typeof $json.body === 'object' ? $json.body : $json;
 const prompt = String(payload.prompt ?? payload.message ?? payload.task ?? '').trim() || 'Resolver un pedido general para Oracle AI';
 const lower = prompt.toLowerCase();
-const selectedAgents = [];
-if (/(investig|mercado|compet|web|tendencia|noticia)/.test(lower)) selectedAgents.push('SCOUT');
-if (/(repo|backend|frontend|codigo|arquitect|error|bug|next|react)/.test(lower)) selectedAgents.push('APEX');
-if (/(riesgo|metrica|analisis|dato|forecast|dashboard)/.test(lower)) selectedAgents.push('VERA');
-if (/(estrateg|roadmap|prioridad|negocio|growth)/.test(lower)) selectedAgents.push('ZION');
-if (/(workflow|n8n|automat|integracion|deploy|operaci)/.test(lower)) selectedAgents.push('FORGE');
-if (/(mensaje|mail|cliente|copy|respuesta)/.test(lower)) selectedAgents.push('ECHO');
-if (/(post|reel|contenido|instagram|linkedin|youtube|tiktok)/.test(lower)) selectedAgents.push('VOX');
-const targetAgents = [...new Set(selectedAgents)].slice(0, 3);
+const scoreMap = new Map([
+  ['SCOUT', 0],
+  ['APEX', 0],
+  ['VERA', 0],
+  ['ZION', 0],
+  ['FORGE', 0],
+  ['ECHO', 0],
+  ['VOX', 0],
+]);
+const explicitMentions = [];
+for (const agentId of scoreMap.keys()) {
+  if (lower.includes(agentId.toLowerCase())) {
+    explicitMentions.push(agentId);
+    scoreMap.set(agentId, (scoreMap.get(agentId) ?? 0) + 120);
+  }
+}
+const weightedSignals = [
+  ['SCOUT', /(investig|mercado|compet|web|tendencia|noticia|research)/, 90],
+  ['APEX', /(repo|backend|frontend|codigo|arquitect|error|bug|next|react)/, 85],
+  ['VERA', /(riesgo|metrica|analisis|dato|forecast|dashboard)/, 78],
+  ['ZION', /(estrateg|roadmap|prioridad|negocio|growth)/, 80],
+  ['FORGE', /(workflow|n8n|automat|integracion|deploy|operaci)/, 82],
+  ['ECHO', /(mensaje|mail|cliente|copy|respuesta|comunic)/, 68],
+  ['VOX', /(post|reel|contenido|instagram|linkedin|youtube|tiktok)/, 68],
+];
+for (const [agentId, pattern, weight] of weightedSignals) {
+  if (pattern.test(lower)) {
+    scoreMap.set(agentId, (scoreMap.get(agentId) ?? 0) + weight);
+  }
+}
+const rankedAgents = [...scoreMap.entries()]
+  .filter(([, score]) => score > 0)
+  .sort((left, right) => right[1] - left[1])
+  .map(([agentId]) => agentId);
+const complexityScore =
+  prompt.length +
+  rankedAgents.length * 28 +
+  (/profundo|deep|completo|detallado/.test(lower) ? 70 : 0);
+const topScore = scoreMap.get(rankedAgents[0] ?? 'SCOUT') ?? 0;
+const secondScore = scoreMap.get(rankedAgents[1] ?? '') ?? 0;
+const maxAgents = explicitMentions.length === 1
+  ? 1
+  : topScore >= 110 && secondScore < 55
+    ? 1
+    : complexityScore < 170
+      ? 2
+      : 3;
+const targetAgents = (rankedAgents.length ? rankedAgents : ['SCOUT']).slice(0, maxAgents);
+const cutoffReason = maxAgents === 1
+  ? (explicitMentions.length === 1 ? 'explicit-single-agent' : 'single-high-confidence-agent')
+  : maxAgents === 2
+    ? 'balanced-duo-cap'
+    : 'three-agent-expansion';
 return [
   {
     json: {
@@ -384,6 +428,15 @@ return [
       source: payload.source ?? ($json.body ? 'webhook' : 'manual'),
       requestedBy: String(payload.requestedBy ?? 'USER'),
       targetAgents: targetAgents.length ? targetAgents : ['SCOUT'],
+      executionOrder: targetAgents.map((agentId, index) => ({
+        agentId,
+        order: index + 1,
+        score: scoreMap.get(agentId) ?? 0,
+      })),
+      maxAgents,
+      cutoffReason,
+      earlyStopEligible: maxAgents === 1,
+      complexityScore,
       freeOnly: true,
     },
   },
@@ -405,6 +458,11 @@ return targetAgents.map((agentId, index) => ({
     targetAgent: agentId,
     workflowId: workflowMap[agentId],
     agentIndex: index + 1,
+    executionOrder: source.executionOrder ?? [],
+    maxAgents: source.maxAgents ?? targetAgents.length,
+    cutoffReason: source.cutoffReason ?? 'fallback',
+    earlyStopEligible: source.earlyStopEligible ?? false,
+    complexityScore: source.complexityScore ?? 0,
     freeOnly: true,
   },
 })).filter((item) => Boolean(item.json.workflowId));`
@@ -421,6 +479,7 @@ return targetAgents.map((agentId, index) => ({
       'Assemble Oracle Response',
       `const results = items.map((item) => item.json);
 const agents = results.map((result) => result.agentId);
+const decisionMode = agents.length <= 1 ? 'single-agent' : 'multi-agent';
 return [
   {
     json: {
@@ -428,8 +487,16 @@ return [
       source: results[0]?.source ?? 'manual',
       requestedBy: results[0]?.requestedBy ?? 'USER',
       selectedAgents: agents,
+      executionOrder: results.map((result, index) => ({
+        agentId: result.agentId,
+        order: index + 1,
+      })),
       delegated: agents.length > 0,
-      ariaSummary: 'ARIA coordino ' + agents.length + ' agente(s) en Oracle AI.',
+      ariaSummary: agents.length <= 1
+        ? 'ARIA aplico corte temprano y resolvio el pedido con un solo agente en Oracle AI.'
+        : 'ARIA coordino ' + agents.length + ' agente(s) en Oracle AI.',
+      decisionMode,
+      cutoffReason: results[0]?.cutoffReason ?? 'fallback',
       results,
       freeOnly: true,
     },
@@ -483,7 +550,7 @@ return [
     'Oracle AI - ARIA Router',
     nodes,
     connections,
-    'ARIA coordina hasta 3 agentes Oracle AI dentro de n8n usando Execute Workflow y solo nodos gratis.',
+    'ARIA coordina hasta 3 agentes Oracle AI dentro de n8n, decide orden, aplica corte temprano y usa solo nodos gratis.',
     true
   );
 }

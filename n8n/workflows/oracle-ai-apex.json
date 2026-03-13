@@ -103,13 +103,13 @@
         "assignments": {
           "assignments": [
             {
-              "id": "resultMode-55348ded",
+              "id": "resultMode-5dffff0c",
               "name": "resultMode",
               "value": "manual-preview",
               "type": "string"
             },
             {
-              "id": "summarySource-0dc3a2d4",
+              "id": "summarySource-57e4cdda",
               "name": "summarySource",
               "value": "apex-preview",
               "type": "string"

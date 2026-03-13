@@ -103,13 +103,13 @@
         "assignments": {
           "assignments": [
             {
-              "id": "resultMode-92e7fee4",
+              "id": "resultMode-327e94f3",
               "name": "resultMode",
               "value": "manual-preview",
               "type": "string"
             },
             {
-              "id": "summarySource-1c7f5a00",
+              "id": "summarySource-511234c9",
               "name": "summarySource",
               "value": "vera-preview",
               "type": "string"

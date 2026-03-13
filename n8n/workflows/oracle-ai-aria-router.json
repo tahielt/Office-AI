@@ -45,7 +45,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const payload = $json.body && typeof $json.body === 'object' ? $json.body : $json;\nconst prompt = String(payload.prompt ?? payload.message ?? payload.task ?? '').trim() || 'Resolver un pedido general para Oracle AI';\nconst lower = prompt.toLowerCase();\nconst selectedAgents = [];\nif (/(investig|mercado|compet|web|tendencia|noticia)/.test(lower)) selectedAgents.push('SCOUT');\nif (/(repo|backend|frontend|codigo|arquitect|error|bug|next|react)/.test(lower)) selectedAgents.push('APEX');\nif (/(riesgo|metrica|analisis|dato|forecast|dashboard)/.test(lower)) selectedAgents.push('VERA');\nif (/(estrateg|roadmap|prioridad|negocio|growth)/.test(lower)) selectedAgents.push('ZION');\nif (/(workflow|n8n|automat|integracion|deploy|operaci)/.test(lower)) selectedAgents.push('FORGE');\nif (/(mensaje|mail|cliente|copy|respuesta)/.test(lower)) selectedAgents.push('ECHO');\nif (/(post|reel|contenido|instagram|linkedin|youtube|tiktok)/.test(lower)) selectedAgents.push('VOX');\nconst targetAgents = [...new Set(selectedAgents)].slice(0, 3);\nreturn [\n  {\n    json: {\n      requestId: payload.requestId ?? 'req-' + Date.now(),\n      prompt,\n      source: payload.source ?? ($json.body ? 'webhook' : 'manual'),\n      requestedBy: String(payload.requestedBy ?? 'USER'),\n      targetAgents: targetAgents.length ? targetAgents : ['SCOUT'],\n      freeOnly: true,\n    },\n  },\n];"
+        "jsCode": "const payload = $json.body && typeof $json.body === 'object' ? $json.body : $json;\nconst prompt = String(payload.prompt ?? payload.message ?? payload.task ?? '').trim() || 'Resolver un pedido general para Oracle AI';\nconst lower = prompt.toLowerCase();\nconst scoreMap = new Map([\n  ['SCOUT', 0],\n  ['APEX', 0],\n  ['VERA', 0],\n  ['ZION', 0],\n  ['FORGE', 0],\n  ['ECHO', 0],\n  ['VOX', 0],\n]);\nconst explicitMentions = [];\nfor (const agentId of scoreMap.keys()) {\n  if (lower.includes(agentId.toLowerCase())) {\n    explicitMentions.push(agentId);\n    scoreMap.set(agentId, (scoreMap.get(agentId) ?? 0) + 120);\n  }\n}\nconst weightedSignals = [\n  ['SCOUT', /(investig|mercado|compet|web|tendencia|noticia|research)/, 90],\n  ['APEX', /(repo|backend|frontend|codigo|arquitect|error|bug|next|react)/, 85],\n  ['VERA', /(riesgo|metrica|analisis|dato|forecast|dashboard)/, 78],\n  ['ZION', /(estrateg|roadmap|prioridad|negocio|growth)/, 80],\n  ['FORGE', /(workflow|n8n|automat|integracion|deploy|operaci)/, 82],\n  ['ECHO', /(mensaje|mail|cliente|copy|respuesta|comunic)/, 68],\n  ['VOX', /(post|reel|contenido|instagram|linkedin|youtube|tiktok)/, 68],\n];\nfor (const [agentId, pattern, weight] of weightedSignals) {\n  if (pattern.test(lower)) {\n    scoreMap.set(agentId, (scoreMap.get(agentId) ?? 0) + weight);\n  }\n}\nconst rankedAgents = [...scoreMap.entries()]\n  .filter(([, score]) => score > 0)\n  .sort((left, right) => right[1] - left[1])\n  .map(([agentId]) => agentId);\nconst complexityScore =\n  prompt.length +\n  rankedAgents.length * 28 +\n  (/profundo|deep|completo|detallado/.test(lower) ? 70 : 0);\nconst topScore = scoreMap.get(rankedAgents[0] ?? 'SCOUT') ?? 0;\nconst secondScore = scoreMap.get(rankedAgents[1] ?? '') ?? 0;\nconst maxAgents = explicitMentions.length === 1\n  ? 1\n  : topScore >= 110 && secondScore < 55\n    ? 1\n    : complexityScore < 170\n      ? 2\n      : 3;\nconst targetAgents = (rankedAgents.length ? rankedAgents : ['SCOUT']).slice(0, maxAgents);\nconst cutoffReason = maxAgents === 1\n  ? (explicitMentions.length === 1 ? 'explicit-single-agent' : 'single-high-confidence-agent')\n  : maxAgents === 2\n    ? 'balanced-duo-cap'\n    : 'three-agent-expansion';\nreturn [\n  {\n    json: {\n      requestId: payload.requestId ?? 'req-' + Date.now(),\n      prompt,\n      source: payload.source ?? ($json.body ? 'webhook' : 'manual'),\n      requestedBy: String(payload.requestedBy ?? 'USER'),\n      targetAgents: targetAgents.length ? targetAgents : ['SCOUT'],\n      executionOrder: targetAgents.map((agentId, index) => ({\n        agentId,\n        order: index + 1,\n        score: scoreMap.get(agentId) ?? 0,\n      })),\n      maxAgents,\n      cutoffReason,\n      earlyStopEligible: maxAgents === 1,\n      complexityScore,\n      freeOnly: true,\n    },\n  },\n];"
       },
       "id": "aria-normalize",
       "name": "Normalize Request",
@@ -59,7 +59,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const workflowMap = {\n  \"SCOUT\": \"__SCOUT_WORKFLOW_ID__\",\n  \"APEX\": \"__APEX_WORKFLOW_ID__\",\n  \"VERA\": \"__VERA_WORKFLOW_ID__\",\n  \"ZION\": \"__ZION_WORKFLOW_ID__\",\n  \"FORGE\": \"__FORGE_WORKFLOW_ID__\",\n  \"ECHO\": \"__ECHO_WORKFLOW_ID__\",\n  \"VOX\": \"__VOX_WORKFLOW_ID__\"\n};\nconst source = items[0]?.json ?? {};\nconst targetAgents = Array.isArray(source.targetAgents) && source.targetAgents.length ? source.targetAgents : ['SCOUT'];\nreturn targetAgents.map((agentId, index) => ({\n  json: {\n    requestId: source.requestId,\n    prompt: source.prompt,\n    source: source.source,\n    requestedBy: 'ARIA',\n    targetAgent: agentId,\n    workflowId: workflowMap[agentId],\n    agentIndex: index + 1,\n    freeOnly: true,\n  },\n})).filter((item) => Boolean(item.json.workflowId));"
+        "jsCode": "const workflowMap = {\n  \"SCOUT\": \"__SCOUT_WORKFLOW_ID__\",\n  \"APEX\": \"__APEX_WORKFLOW_ID__\",\n  \"VERA\": \"__VERA_WORKFLOW_ID__\",\n  \"ZION\": \"__ZION_WORKFLOW_ID__\",\n  \"FORGE\": \"__FORGE_WORKFLOW_ID__\",\n  \"ECHO\": \"__ECHO_WORKFLOW_ID__\",\n  \"VOX\": \"__VOX_WORKFLOW_ID__\"\n};\nconst source = items[0]?.json ?? {};\nconst targetAgents = Array.isArray(source.targetAgents) && source.targetAgents.length ? source.targetAgents : ['SCOUT'];\nreturn targetAgents.map((agentId, index) => ({\n  json: {\n    requestId: source.requestId,\n    prompt: source.prompt,\n    source: source.source,\n    requestedBy: 'ARIA',\n    targetAgent: agentId,\n    workflowId: workflowMap[agentId],\n    agentIndex: index + 1,\n    executionOrder: source.executionOrder ?? [],\n    maxAgents: source.maxAgents ?? targetAgents.length,\n    cutoffReason: source.cutoffReason ?? 'fallback',\n    earlyStopEligible: source.earlyStopEligible ?? false,\n    complexityScore: source.complexityScore ?? 0,\n    freeOnly: true,\n  },\n})).filter((item) => Boolean(item.json.workflowId));"
       },
       "id": "aria-expand-agents",
       "name": "Expand Agent Targets",
@@ -91,7 +91,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const results = items.map((item) => item.json);\nconst agents = results.map((result) => result.agentId);\nreturn [\n  {\n    json: {\n      requestId: results[0]?.requestId ?? 'manual',\n      source: results[0]?.source ?? 'manual',\n      requestedBy: results[0]?.requestedBy ?? 'USER',\n      selectedAgents: agents,\n      delegated: agents.length > 0,\n      ariaSummary: 'ARIA coordino ' + agents.length + ' agente(s) en Oracle AI.',\n      results,\n      freeOnly: true,\n    },\n  },\n];"
+        "jsCode": "const results = items.map((item) => item.json);\nconst agents = results.map((result) => result.agentId);\nconst decisionMode = agents.length <= 1 ? 'single-agent' : 'multi-agent';\nreturn [\n  {\n    json: {\n      requestId: results[0]?.requestId ?? 'manual',\n      source: results[0]?.source ?? 'manual',\n      requestedBy: results[0]?.requestedBy ?? 'USER',\n      selectedAgents: agents,\n      executionOrder: results.map((result, index) => ({\n        agentId: result.agentId,\n        order: index + 1,\n      })),\n      delegated: agents.length > 0,\n      ariaSummary: agents.length <= 1\n        ? 'ARIA aplico corte temprano y resolvio el pedido con un solo agente en Oracle AI.'\n        : 'ARIA coordino ' + agents.length + ' agente(s) en Oracle AI.',\n      decisionMode,\n      cutoffReason: results[0]?.cutoffReason ?? 'fallback',\n      results,\n      freeOnly: true,\n    },\n  },\n];"
       },
       "id": "aria-assemble-response",
       "name": "Assemble Oracle Response",
@@ -122,13 +122,13 @@
         "assignments": {
           "assignments": [
             {
-              "id": "resultMode-521257c3",
+              "id": "resultMode-88549608",
               "name": "resultMode",
               "value": "manual-preview",
               "type": "string"
             },
             {
-              "id": "summarySource-3c0c22a0",
+              "id": "summarySource-3f5d4a15",
               "name": "summarySource",
               "value": "oracle-aria-preview",
               "type": "string"
@@ -268,5 +268,5 @@
     "oracleAiWorkflow": true
   },
   "active": true,
-  "description": "ARIA coordina hasta 3 agentes Oracle AI dentro de n8n usando Execute Workflow y solo nodos gratis."
+  "description": "ARIA coordina hasta 3 agentes Oracle AI dentro de n8n, decide orden, aplica corte temprano y usa solo nodos gratis."
 }

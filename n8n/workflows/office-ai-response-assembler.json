@@ -70,7 +70,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const data = items[0]?.json ?? {};\nconst fronts = Array.isArray(data.leadResults) ? data.leadResults.length : 0;\nreturn [\n  {\n    json: {\n      requestId: data.requestId ?? 'manual',\n      source: data.source ?? 'manual',\n      responseMode: data.responseMode ?? 'rapid',\n      lane: data.lane ?? 'rapid',\n      ariaSummary: `ARIA cerro ${fronts} frente(s) de trabajo con salida gratis y orquestada`,\n      steps: data.nextSteps ?? [],\n      findings: data.findings ?? [],\n      risks: data.risks ?? [],\n      sources: [],\n      latencyMs: data.latencyMs ?? 0,\n      freeOnly: true,\n    },\n  },\n];"
+        "jsCode": "const data = items[0]?.json ?? {};\nconst fronts = Array.isArray(data.leadResults) ? data.leadResults.length : 0;\nconst decisionMode = fronts <= 1 ? 'single-lead' : 'multi-lead';\nreturn [\n  {\n    json: {\n      requestId: data.requestId ?? 'manual',\n      source: data.source ?? 'manual',\n      responseMode: data.responseMode ?? 'rapid',\n      lane: data.lane ?? 'rapid',\n      ariaSummary: fronts <= 1\n        ? 'ARIA aplico corte temprano porque un solo lead alcanzo para resolver el pedido.'\n        : `ARIA cerro ${fronts} frente(s) de trabajo con salida gratis y orquestada`,\n      decisionMode,\n      steps: data.nextSteps ?? [],\n      findings: data.findings ?? [],\n      risks: data.risks ?? [],\n      sources: [],\n      latencyMs: data.latencyMs ?? 0,\n      freeOnly: true,\n    },\n  },\n];"
       },
       "id": "compose-aria-summary",
       "name": "Compose ARIA Summary",

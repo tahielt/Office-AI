@@ -44,7 +44,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const input = items[0]?.json ?? {};\nconst payload = input.body && typeof input.body === 'object' ? input.body : input;\nconst prompt = [payload.prompt, payload.task, payload.message, payload.text]\n  .find((value) => typeof value === 'string' && value.trim()) ?? 'Analizar la tarea actual de Office AI';\nconst requested = String(prompt).toLowerCase();\nconst mentionMap = {\n  scout: 'SCOUT',\n  apex: 'APEX',\n  zion: 'ZION',\n  forge: 'FORGE',\n  echo: 'ECHO',\n  vera: 'VERA',\n  vox: 'VOX',\n};\nconst mentionedAgents = Object.entries(mentionMap)\n  .filter(([token]) => requested.includes(token))\n  .map(([, agent]) => agent);\nconst inferredAgents = [];\nif (/investig|compet|mercado|tendencia|web/.test(requested)) inferredAgents.push('SCOUT');\nif (/repo|backend|codigo|arquitect|bug|infra/.test(requested)) inferredAgents.push('APEX');\nif (/estrateg|growth|negocio|roadmap|plan/.test(requested)) inferredAgents.push('ZION');\nif (/workflow|automat|n8n|deploy|implement/.test(requested)) inferredAgents.push('FORGE');\nconst leadAgents = [...new Set([...mentionedAgents, ...inferredAgents])].slice(0, 3);\nconst complexityScore =\n  prompt.length +\n  leadAgents.length * 35 +\n  (/profundo|deep|completo|detallado/.test(requested) ? 80 : 0);\nconst responseMode = complexityScore >= 160 ? 'deep' : 'rapid';\nreturn [\n  {\n    json: {\n      requestId: payload.requestId ?? 'req-' + Date.now(),\n      task: prompt,\n      leadAgents: leadAgents.length ? leadAgents : ['SCOUT'],\n      source: payload.source ?? 'webhook',\n      freeOnly: true,\n      complexityScore,\n      responseMode,\n      maxLatencyMs: responseMode === 'rapid' ? 2500 : 4500,\n    },\n  },\n];"
+        "jsCode": "const input = items[0]?.json ?? {};\nconst payload = input.body && typeof input.body === 'object' ? input.body : input;\nconst prompt = [payload.prompt, payload.task, payload.message, payload.text]\n  .find((value) => typeof value === 'string' && value.trim()) ?? 'Analizar la tarea actual de Office AI';\nconst requested = String(prompt).toLowerCase();\nconst mentionMap = {\n  scout: 'SCOUT',\n  apex: 'APEX',\n  zion: 'ZION',\n  forge: 'FORGE',\n  echo: 'ECHO',\n  vera: 'VERA',\n  vox: 'VOX',\n};\nconst scoreMap = new Map();\nfor (const agent of Object.values(mentionMap)) scoreMap.set(agent, 0);\nconst mentionedAgents = [];\nfor (const [token, agent] of Object.entries(mentionMap)) {\n  if (requested.includes(token)) {\n    mentionedAgents.push(agent);\n    scoreMap.set(agent, (scoreMap.get(agent) ?? 0) + 120);\n  }\n}\nconst weightedSignals = [\n  ['SCOUT', /(investig|compet|mercado|tendencia|web|noticia|research)/, 90],\n  ['APEX', /(repo|backend|codigo|arquitect|bug|infra|api|frontend)/, 85],\n  ['ZION', /(estrateg|growth|negocio|roadmap|plan|prioridad)/, 80],\n  ['FORGE', /(workflow|automat|n8n|deploy|implement|integraci)/, 80],\n  ['VERA', /(riesgo|metrica|analisis|dashboard|dato)/, 72],\n  ['ECHO', /(mensaje|copy|mail|respuesta|comunic)/, 68],\n  ['VOX', /(contenido|post|reel|linkedin|instagram|youtube|tiktok)/, 68],\n];\nfor (const [agent, pattern, weight] of weightedSignals) {\n  if (pattern.test(requested)) {\n    scoreMap.set(agent, (scoreMap.get(agent) ?? 0) + weight);\n  }\n}\nconst rankedAgents = [...scoreMap.entries()]\n  .filter(([, score]) => score > 0)\n  .sort((left, right) => right[1] - left[1])\n  .map(([agent]) => agent);\nconst complexityScore =\n  prompt.length +\n  rankedAgents.length * 35 +\n  (/profundo|deep|completo|detallado/.test(requested) ? 80 : 0);\nconst responseMode = complexityScore >= 160 ? 'deep' : 'rapid';\nconst topScore = scoreMap.get(rankedAgents[0] ?? 'SCOUT') ?? 0;\nconst secondScore = scoreMap.get(rankedAgents[1] ?? '') ?? 0;\nconst maxLeads = mentionedAgents.length === 1\n  ? 1\n  : topScore >= 110 && secondScore < 55\n    ? 1\n    : responseMode === 'rapid'\n      ? 2\n      : 3;\nconst leadAgents = (rankedAgents.length ? rankedAgents : ['SCOUT']).slice(0, maxLeads);\nconst cutoffReason = maxLeads === 1\n  ? (mentionedAgents.length === 1 ? 'explicit-single-lead' : 'single-high-confidence-lead')\n  : responseMode === 'rapid'\n    ? 'rapid-lane-cap'\n    : 'deep-multi-lead';\nreturn [\n  {\n    json: {\n      requestId: payload.requestId ?? 'req-' + Date.now(),\n      task: prompt,\n      leadAgents: leadAgents.length ? leadAgents : ['SCOUT'],\n      decisionOrder: leadAgents.map((agent, index) => ({\n        agent,\n        order: index + 1,\n        score: scoreMap.get(agent) ?? 0,\n      })),\n      source: payload.source ?? 'webhook',\n      freeOnly: true,\n      complexityScore,\n      responseMode,\n      earlyStopEligible: maxLeads === 1,\n      cutoffReason,\n      maxLeads,\n      maxLatencyMs: responseMode === 'rapid' ? 2500 : 4500,\n    },\n  },\n];"
       },
       "id": "normalize-intake",
       "name": "Normalize Intake",
@@ -75,19 +75,19 @@
         "assignments": {
           "assignments": [
             {
-              "id": "lane-e7ae9b6b",
+              "id": "lane-ddcd8815",
               "name": "lane",
               "value": "rapid",
               "type": "string"
             },
             {
-              "id": "targetLatencyMs-b4af49ca",
+              "id": "targetLatencyMs-8b843bd9",
               "name": "targetLatencyMs",
               "value": 2500,
               "type": "number"
             },
             {
-              "id": "handoffPlan-ed08e636",
+              "id": "handoffPlan-8106e917",
               "name": "handoffPlan",
               "value": "brief-builder -> specialist-runner -> compact-assembler",
               "type": "string"
@@ -110,19 +110,19 @@
         "assignments": {
           "assignments": [
             {
-              "id": "lane-3b6bab5d",
+              "id": "lane-face48b8",
               "name": "lane",
               "value": "deep",
               "type": "string"
             },
             {
-              "id": "targetLatencyMs-6195c503",
+              "id": "targetLatencyMs-1fc0c017",
               "name": "targetLatencyMs",
               "value": 4500,
               "type": "number"
             },
             {
-              "id": "handoffPlan-e2cc8b69",
+              "id": "handoffPlan-c084f259",
               "name": "handoffPlan",
               "value": "brief-builder -> specialist-runner -> full-assembler",
               "type": "string"
@@ -214,13 +214,13 @@
         "assignments": {
           "assignments": [
             {
-              "id": "resultMode-9d0c90c6",
+              "id": "resultMode-72b621c7",
               "name": "resultMode",
               "value": "manual-preview",
               "type": "string"
             },
             {
-              "id": "summarySource-04d0e05b",
+              "id": "summarySource-4f0f40de",
               "name": "summarySource",
               "value": "n8n-office-router",
               "type": "string"
@@ -399,5 +399,5 @@
     "officeAiFreeOnly": true
   },
   "active": false,
-  "description": "Router gratuito con webhook y modo manual que ya llama a los tres subworkflows de Office AI sin usar APIs pagas."
+  "description": "Router gratuito con webhook y modo manual que decide orden, tope 1/2/3 leads y corte temprano antes de llamar a los subworkflows de Office AI."
 }

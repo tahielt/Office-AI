@@ -196,30 +196,71 @@ const mentionMap = {
   vera: 'VERA',
   vox: 'VOX',
 };
-const mentionedAgents = Object.entries(mentionMap)
-  .filter(([token]) => requested.includes(token))
-  .map(([, agent]) => agent);
-const inferredAgents = [];
-if (/investig|compet|mercado|tendencia|web/.test(requested)) inferredAgents.push('SCOUT');
-if (/repo|backend|codigo|arquitect|bug|infra/.test(requested)) inferredAgents.push('APEX');
-if (/estrateg|growth|negocio|roadmap|plan/.test(requested)) inferredAgents.push('ZION');
-if (/workflow|automat|n8n|deploy|implement/.test(requested)) inferredAgents.push('FORGE');
-const leadAgents = [...new Set([...mentionedAgents, ...inferredAgents])].slice(0, 3);
+const scoreMap = new Map();
+for (const agent of Object.values(mentionMap)) scoreMap.set(agent, 0);
+const mentionedAgents = [];
+for (const [token, agent] of Object.entries(mentionMap)) {
+  if (requested.includes(token)) {
+    mentionedAgents.push(agent);
+    scoreMap.set(agent, (scoreMap.get(agent) ?? 0) + 120);
+  }
+}
+const weightedSignals = [
+  ['SCOUT', /(investig|compet|mercado|tendencia|web|noticia|research)/, 90],
+  ['APEX', /(repo|backend|codigo|arquitect|bug|infra|api|frontend)/, 85],
+  ['ZION', /(estrateg|growth|negocio|roadmap|plan|prioridad)/, 80],
+  ['FORGE', /(workflow|automat|n8n|deploy|implement|integraci)/, 80],
+  ['VERA', /(riesgo|metrica|analisis|dashboard|dato)/, 72],
+  ['ECHO', /(mensaje|copy|mail|respuesta|comunic)/, 68],
+  ['VOX', /(contenido|post|reel|linkedin|instagram|youtube|tiktok)/, 68],
+];
+for (const [agent, pattern, weight] of weightedSignals) {
+  if (pattern.test(requested)) {
+    scoreMap.set(agent, (scoreMap.get(agent) ?? 0) + weight);
+  }
+}
+const rankedAgents = [...scoreMap.entries()]
+  .filter(([, score]) => score > 0)
+  .sort((left, right) => right[1] - left[1])
+  .map(([agent]) => agent);
 const complexityScore =
   prompt.length +
-  leadAgents.length * 35 +
+  rankedAgents.length * 35 +
   (/profundo|deep|completo|detallado/.test(requested) ? 80 : 0);
 const responseMode = complexityScore >= 160 ? 'deep' : 'rapid';
+const topScore = scoreMap.get(rankedAgents[0] ?? 'SCOUT') ?? 0;
+const secondScore = scoreMap.get(rankedAgents[1] ?? '') ?? 0;
+const maxLeads = mentionedAgents.length === 1
+  ? 1
+  : topScore >= 110 && secondScore < 55
+    ? 1
+    : responseMode === 'rapid'
+      ? 2
+      : 3;
+const leadAgents = (rankedAgents.length ? rankedAgents : ['SCOUT']).slice(0, maxLeads);
+const cutoffReason = maxLeads === 1
+  ? (mentionedAgents.length === 1 ? 'explicit-single-lead' : 'single-high-confidence-lead')
+  : responseMode === 'rapid'
+    ? 'rapid-lane-cap'
+    : 'deep-multi-lead';
 return [
   {
     json: {
       requestId: payload.requestId ?? 'req-' + Date.now(),
       task: prompt,
       leadAgents: leadAgents.length ? leadAgents : ['SCOUT'],
+      decisionOrder: leadAgents.map((agent, index) => ({
+        agent,
+        order: index + 1,
+        score: scoreMap.get(agent) ?? 0,
+      })),
       source: payload.source ?? 'webhook',
       freeOnly: true,
       complexityScore,
       responseMode,
+      earlyStopEligible: maxLeads === 1,
+      cutoffReason,
+      maxLeads,
       maxLatencyMs: responseMode === 'rapid' ? 2500 : 4500,
     },
   },
@@ -318,7 +359,7 @@ return [
     'Office AI - Intake Router',
     nodes,
     connections,
-    'Router gratuito con webhook y modo manual que ya llama a los tres subworkflows de Office AI sin usar APIs pagas.'
+    'Router gratuito con webhook y modo manual que decide orden, tope 1/2/3 leads y corte temprano antes de llamar a los subworkflows de Office AI.'
   );
 }
 
@@ -700,6 +741,7 @@ return [
       'Compose ARIA Summary',
       `const data = items[0]?.json ?? {};
 const fronts = Array.isArray(data.leadResults) ? data.leadResults.length : 0;
+const decisionMode = fronts <= 1 ? 'single-lead' : 'multi-lead';
 return [
   {
     json: {
@@ -707,7 +749,10 @@ return [
       source: data.source ?? 'manual',
       responseMode: data.responseMode ?? 'rapid',
       lane: data.lane ?? 'rapid',
-      ariaSummary: \`ARIA cerro \${fronts} frente(s) de trabajo con salida gratis y orquestada\`,
+      ariaSummary: fronts <= 1
+        ? 'ARIA aplico corte temprano porque un solo lead alcanzo para resolver el pedido.'
+        : \`ARIA cerro \${fronts} frente(s) de trabajo con salida gratis y orquestada\`,
+      decisionMode,
       steps: data.nextSteps ?? [],
       findings: data.findings ?? [],
       risks: data.risks ?? [],
