@@ -11,86 +11,138 @@ export default function AgentSidebar({ agents }: Props) {
   const [time, setTime] = useState<string | null>(null);
 
   useEffect(() => {
-    // Set initial time
-    setTime(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
-
-    // Update time every minute
-    const timer = setInterval(() => {
-      setTime(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
-    }, 60000);
-
+    const fmt = () => new Date().toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+    setTime(fmt());
+    const timer = setInterval(() => setTime(fmt()), 60000);
     return () => clearInterval(timer);
   }, []);
 
+  const activeCount = agents.filter(a => a.status !== "idle" && a.status !== "done").length;
+
   return (
-    <div className="w-[320px] shrink-0 h-full flex flex-col gap-4">
-      {/* Sidebar Header */}
-      <div className="retro-panel p-3 flex flex-col gap-1 uppercase bg-slate-900">
-        <div className="text-[10px] font-mono text-cyan-400 tracking-widest flex items-center justify-between">
-          <span>SYSTEM TIME</span>
-          <span>{time || "--:--"}</span>
+    <div className="w-[280px] shrink-0 h-full flex flex-col gap-2">
+
+      {/* Header */}
+      <div
+        className="px-3 py-2.5 flex items-center justify-between"
+        style={{
+          background: "#0d0d18",
+          border: "1px solid rgba(255,255,255,0.06)",
+          borderRadius: "6px",
+        }}
+      >
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[9px] font-mono tracking-[0.25em] text-white/30 uppercase">
+            Panel de Agentes
+          </span>
+          <div className="flex items-center gap-2">
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-[10px] font-mono text-emerald-400/80">
+              {activeCount} activos
+            </span>
+          </div>
         </div>
-        <div className="h-0.5 bg-slate-700 w-full" />
-        <div className="text-[11px] font-mono text-white/50 tracking-widest">
-          AGENT STATUS PANEL
-        </div>
+        <span className="text-[13px] font-mono text-white/60 tabular-nums">
+          {time || "--:--"}
+        </span>
       </div>
 
-      {/* Agents List */}
-      <div className="flex-1 flex flex-col gap-3 overflow-y-auto">
+      {/* Lista de agentes — scrolleable */}
+      <div className="flex-1 flex flex-col gap-1.5 overflow-y-auto pr-0.5">
         {agents.map((agent) => {
           const statusInfo = STATUS_CONFIG[agent.status] || STATUS_CONFIG.idle;
-
-          // Fake a completion percentage based on tasks completed vs total
+          const isActive = agent.status !== "idle" && agent.status !== "done";
           const completionPct = Math.min(100, Math.floor((agent.tasksCompleted / (agent.tasksCompleted + 15)) * 100));
 
           return (
-            <div key={agent.id} className="retro-panel bg-slate-900 border-slate-700 p-3 h-32 flex flex-col gap-2 relative overflow-hidden transition-colors hover:bg-slate-800/80">
-              
-              <div className="flex items-start gap-4 h-full z-10">
-                {/* 1. Agent Avatar (Pixel Style Container) */}
-                <div 
-                  className="w-12 h-16 shrink-0 bg-black/40 border-2 rounded-sm flex items-center justify-center font-bold text-2xl"
-                  style={{ borderColor: agent.color, color: agent.color }}
+            <div
+              key={agent.id}
+              className="relative flex flex-col gap-2 px-3 py-2.5 overflow-hidden transition-all duration-200"
+              style={{
+                background: isActive ? `${agent.color}08` : "#0d0d18",
+                border: `1px solid ${isActive ? agent.color + "25" : "rgba(255,255,255,0.05)"}`,
+                borderRadius: "6px",
+                borderLeft: `2px solid ${isActive ? agent.color : "rgba(255,255,255,0.08)"}`,
+              }}
+            >
+              {/* Glow de fondo cuando activo */}
+              {isActive && (
+                <div
+                  className="absolute inset-0 pointer-events-none"
+                  style={{
+                    background: `radial-gradient(ellipse at 0% 50%, ${agent.color}10 0%, transparent 70%)`,
+                  }}
+                />
+              )}
+
+              {/* Fila superior: avatar + nombre + status */}
+              <div className="flex items-center gap-2.5 relative z-10">
+                {/* Avatar */}
+                <div
+                  className="w-9 h-9 shrink-0 rounded flex items-center justify-center text-[11px] font-bold font-mono"
+                  style={{
+                    background: `${agent.color}15`,
+                    border: `1px solid ${agent.color}40`,
+                    color: agent.color,
+                  }}
                 >
                   {agent.avatar}
                 </div>
 
-                {/* 2. Agent Data */}
-                <div className="flex-1 min-w-0 flex flex-col gap-1 justify-center">
-                  <div className="flex items-baseline justify-between">
-                    <span className="font-mono font-bold text-sm tracking-widest text-white truncate">
+                {/* Info */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="text-[12px] font-mono font-bold text-white tracking-wider truncate">
                       {agent.name}
                     </span>
-                    <span 
-                      className="text-[9px] font-mono tracking-widest px-1 py-0.5 bg-black/50 border border-slate-600 rounded" 
-                      style={{ color: statusInfo.color }}
+                    <span
+                      className="text-[8px] font-mono tracking-wider px-1.5 py-0.5 rounded-sm shrink-0"
+                      style={{
+                        color: statusInfo.color,
+                        background: `${statusInfo.color}15`,
+                        border: `1px solid ${statusInfo.color}30`,
+                      }}
                     >
                       {statusInfo.label}
                     </span>
                   </div>
-
-                  <span className="text-[10px] text-white/40 uppercase tracking-wider truncate">
+                  <span className="text-[9px] text-white/30 uppercase tracking-wider">
                     {agent.role}
                   </span>
-
-                  <div className="text-[11px] font-mono text-white/80 line-clamp-2 mt-1 leading-tight">
-                    <span className="text-cyan-400/50 mr-1">{">"}</span>{agent.currentTask}
-                  </div>
                 </div>
               </div>
 
-              {/* 3. Progress / Energy Bar */}
-              <div className="w-full flex items-center gap-2 mt-auto z-10">
-                <span className="text-[9px] font-mono text-white/40">PRG</span>
-                <div className="flex-1 h-3 bg-black/60 border border-slate-700 p-0.5 flex items-center">
-                  {/* Simulate pixel blocks for progress */}
-                  <div 
-                    className="h-full bg-cyan-500 transition-all duration-1000" 
-                    style={{ width: `${completionPct}%`, backgroundColor: agent.color }}
+              {/* Tarea actual */}
+              <div
+                className="relative z-10 text-[10px] font-mono leading-tight line-clamp-2"
+                style={{ color: "rgba(255,255,255,0.5)" }}
+              >
+                <span style={{ color: agent.color + "80" }}>› </span>
+                {agent.currentTask}
+              </div>
+
+              {/* Barra de progreso */}
+              <div className="flex items-center gap-2 relative z-10">
+                <span className="text-[8px] font-mono text-white/25 w-6 shrink-0">PRG</span>
+                <div
+                  className="flex-1 h-1.5 rounded-full overflow-hidden"
+                  style={{ background: "rgba(255,255,255,0.06)" }}
+                >
+                  <div
+                    className="h-full rounded-full transition-all duration-1000"
+                    style={{
+                      width: `${completionPct}%`,
+                      background: isActive
+                        ? `linear-gradient(90deg, ${agent.color}80, ${agent.color})`
+                        : `${agent.color}40`,
+                      boxShadow: isActive ? `0 0 6px ${agent.color}60` : "none",
+                    }}
                   />
                 </div>
-                <span className="text-[9px] font-mono w-6 text-right" style={{ color: agent.color }}>
+                <span
+                  className="text-[8px] font-mono w-7 text-right shrink-0"
+                  style={{ color: agent.color + "90" }}
+                >
                   {completionPct}%
                 </span>
               </div>

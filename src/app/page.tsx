@@ -9,28 +9,33 @@ export default function Home() {
   const { agents, metrics, handleCommand } = useAgents();
 
   return (
-    <main className="h-screen w-screen flex flex-col overflow-hidden jrpg-bg text-white font-sans text-sm selection:bg-cyan-500/30">
-      {/* Top metrics bar */}
+    <main className="h-screen w-screen flex flex-col overflow-hidden text-white font-sans text-sm"
+      style={{ background: "#080810" }}>
+
+      {/* Barra de métricas superior */}
       <MetricsBar metrics={metrics} />
 
-      {/* Main content area */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        
-        {/* Top Split: JRPG Map (Left) & Sidebar (Right) */}
-        <div className="flex-1 flex min-h-0">
-          <div className="flex-1 p-4 pb-0 flex items-stretch">
+      {/* Área principal — flex column para que la terminal empuje desde abajo */}
+      <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+
+        {/* Split horizontal: Board + Sidebar */}
+        <div className="flex-1 flex min-h-0 gap-0">
+
+          {/* Board — ocupa todo el espacio restante */}
+          <div className="flex-1 p-3 pb-0 min-w-0">
             <JRPGBoard agents={agents} />
           </div>
-          <div className="p-4 pl-0 shrink-0">
+
+          {/* Sidebar — ancho fijo */}
+          <div className="p-3 pl-2 pb-0 shrink-0">
             <AgentSidebar agents={agents} />
           </div>
         </div>
 
-        {/* Bottom Panel: Terminal */}
-        <div className="h-[30vh] shrink-0 p-4 pt-4">
+        {/* Terminal — altura dinámica por resize interno */}
+        <div className="shrink-0 px-3 pt-2 pb-3">
           <Terminal agents={agents} onCommand={handleCommand} />
         </div>
-
       </div>
     </main>
   );
