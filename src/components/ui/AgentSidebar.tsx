@@ -67,6 +67,7 @@ export default function AgentSidebar({ agents, teamModeEnabled }: Props) {
           const statusInfo = STATUS_CONFIG[agent.status] || STATUS_CONFIG.idle;
           const isActive = agent.status !== "idle" && agent.status !== "done";
           const completionPct = Math.min(100, Math.floor((agent.tasksCompleted / (agent.tasksCompleted + 15)) * 100));
+          const activeSubAgents = new Set((agent.activeTeamAssignments ?? []).map((assignment) => assignment.subAgentId));
 
           return (
             <div
@@ -134,8 +135,17 @@ export default function AgentSidebar({ agents, teamModeEnabled }: Props) {
                     >
                       {agent.teamLead ? "BRAIN" : `SQUAD ${agent.teamMembers.length}`}
                     </span>
+                    {agent.lane && (
+                      <span className="text-[8px] font-mono text-white/45 tracking-[0.18em]">
+                        LANE {agent.lane.toUpperCase()}
+                      </span>
+                    )}
                     <span className="text-[8px] font-mono text-white/20 tracking-[0.18em]">
-                      {teamModeEnabled ? "SUBAGENTES ONLINE" : "SUBAGENTES EN ESPERA"}
+                      {activeSubAgents.size > 0
+                        ? `${activeSubAgents.size} SUBAGENTES ACTIVOS`
+                        : teamModeEnabled
+                          ? "SQUAD LISTO"
+                          : "TEAM OFF"}
                     </span>
                   </div>
                 </div>
@@ -150,15 +160,39 @@ export default function AgentSidebar({ agents, teamModeEnabled }: Props) {
                 {agent.currentTask}
               </div>
 
+              {agent.statusDetail && (
+                <div
+                  className="relative z-10 text-[8px] font-mono tracking-[0.18em] uppercase"
+                  style={{ color: agent.color }}
+                >
+                  {agent.statusDetail}
+                </div>
+              )}
+
               <div className="flex flex-wrap gap-1 relative z-10">
                 {agent.teamMembers.map((member) => (
                   <span
                     key={`${agent.id}-${member.id}`}
                     className="text-[8px] font-mono tracking-[0.16em] px-1.5 py-0.5 rounded-sm"
                     style={{
-                      color: teamModeEnabled ? agent.color : "rgba(255,255,255,0.35)",
-                      background: teamModeEnabled ? `${agent.color}10` : "rgba(255,255,255,0.04)",
-                      border: `1px solid ${teamModeEnabled ? agent.color + "20" : "rgba(255,255,255,0.06)"}`,
+                      color: activeSubAgents.has(member.id)
+                        ? agent.color
+                        : teamModeEnabled
+                          ? "rgba(255,255,255,0.48)"
+                          : "rgba(255,255,255,0.35)",
+                      background: activeSubAgents.has(member.id)
+                        ? `${agent.color}18`
+                        : teamModeEnabled
+                          ? `${agent.color}08`
+                          : "rgba(255,255,255,0.04)",
+                      border: `1px solid ${
+                        activeSubAgents.has(member.id)
+                          ? agent.color + "55"
+                          : teamModeEnabled
+                            ? agent.color + "18"
+                            : "rgba(255,255,255,0.06)"
+                      }`,
+                      boxShadow: activeSubAgents.has(member.id) ? `0 0 10px ${agent.color}25` : "none",
                     }}
                     title={`${member.role}: ${member.specialty}`}
                   >

@@ -12,7 +12,7 @@ export type AgentStatus =
 
 export interface LogEntry {
   id: string;
-  type: "system" | "thought" | "communication";
+  type: "system" | "thought" | "communication" | "command";
   text: string;
   timestamp: Date;
 }
@@ -30,6 +30,9 @@ export interface TeamAssignment {
   subAgentRole: string;
   objective: string;
 }
+
+export type AgentLane = "alpha" | "beta" | "gamma";
+export type AgentZone = "desk" | "handoff" | "collab";
 
 export type AgentAnimation = 
   | "typing" 
@@ -58,6 +61,11 @@ export interface Agent {
   position: { x: number; y: number };
   log: LogEntry[];
   teamMembers: SubAgent[];
+  activeTeamAssignments?: TeamAssignment[];
+  lane?: AgentLane | null;
+  zone?: AgentZone;
+  interactionTargetId?: string | null;
+  statusDetail?: string | null;
   teamLead?: boolean;
 }
 

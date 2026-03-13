@@ -1,14 +1,45 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 
-import { INITIAL_AGENTS, generateMockTask, getInitialMetrics } from "@/lib/agents";
-import { Agent, AgentAnimation, AgentStatus, SystemMetrics, Task, TeamAssignment } from "@/types/agent";
+import { INITIAL_AGENTS, getInitialMetrics } from "@/lib/agents";
+import { Agent, AgentAnimation, AgentLane, AgentStatus, AgentZone, SystemMetrics, TeamAssignment } from "@/types/agent";
 
 const AGENT_ALIASES: Record<string, string> = {
   lyra: "scout",
   pulse: "vox",
 };
+
+const ROUTING_HINTS: Array<{ agentId: string; patterns: RegExp[] }> = [
+  {
+    agentId: "scout",
+    patterns: [/\binvestig/i, /\bweb\b/i, /\bmercado\b/i, /\bcompet/i, /\btendenc/i, /\bbenchmark/i, /\bfuentes?\b/i],
+  },
+  {
+    agentId: "apex",
+    patterns: [/\bcodigo\b/i, /\bc[oó]digo\b/i, /\brepo\b/i, /\bbug\b/i, /\berror\b/i, /\bbackend\b/i, /\bfrontend\b/i, /\bdebug\b/i],
+  },
+  {
+    agentId: "vera",
+    patterns: [/\bm[eé]trica/i, /\bdatos?\b/i, /\ban[aá]lis/i, /\bkpi\b/i, /\bforecast\b/i, /\bcohort/i],
+  },
+  {
+    agentId: "zion",
+    patterns: [/\bestrateg/i, /\broadmap\b/i, /\bpriori/i, /\bplan\b/i, /\bdecision/i, /\btrade/i],
+  },
+  {
+    agentId: "forge",
+    patterns: [/\bautomat/i, /\bworkflow\b/i, /\bn8n\b/i, /\bwebhook\b/i, /\btrigger\b/i, /\bpipeline\b/i, /\bintegr/i],
+  },
+  {
+    agentId: "echo",
+    patterns: [/\bemail\b/i, /\bmail\b/i, /\bmensaje/i, /\bcliente\b/i, /\bfollow/i, /\bpropuesta\b/i],
+  },
+  {
+    agentId: "vox",
+    patterns: [/\bcontenido\b/i, /\breel\b/i, /\bpost\b/i, /\bguion\b/i, /\bcaption\b/i, /\bcopy\b/i],
+  },
+];
 
 const EXECUTION_STATE: Record<string, { status: AgentStatus; animation: AgentAnimation }> = {
   scout: { status: "researching", animation: "thinking" },
@@ -16,10 +47,12 @@ const EXECUTION_STATE: Record<string, { status: AgentStatus; animation: AgentAni
   vera: { status: "analyzing", animation: "thinking" },
   zion: { status: "thinking", animation: "thinking" },
   forge: { status: "running", animation: "typing" },
-  echo: { status: "thinking", animation: "typing" },
+  echo: { status: "thinking", animation: "talking" },
   vox: { status: "thinking", animation: "typing" },
-  aria: { status: "thinking", animation: "talking" },
+  aria: { status: "meeting", animation: "talking" },
 };
+
+const BASE_CURRENT_TASKS = Object.fromEntries(INITIAL_AGENTS.map((agent) => [agent.id, agent.currentTask])) as Record<string, string>;
 
 type OrchestratorErrorPayload = {
   error?: string;
@@ -33,6 +66,11 @@ type OrchestratorStepPayload = {
   provider: string;
   teamAssignments?: TeamAssignment[];
   teamModeUsed?: boolean;
+  lane?: AgentLane;
+  zone?: AgentZone;
+  interactionTargetId?: string;
+  statusDetail?: string;
+  handoffTargets?: string[];
   sources?: Array<{
     title: string;
     url: string;
@@ -55,13 +93,7 @@ function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
 
-function guessInitialTarget(cmd: string) {
-  if (cmd.startsWith("/report_status") || cmd.startsWith("/summon_all")) return "zion";
-  if (cmd.startsWith("/dismiss")) return "aria";
-  return "aria";
-}
-
-function createLog(type: "system" | "thought" | "communication", text: string) {
+function createLog(type: "system" | "communication" | "command", text: string) {
   return {
     id: crypto.randomUUID(),
     type,
@@ -73,7 +105,7 @@ function createLog(type: "system" | "thought" | "communication", text: string) {
 function appendAgentLogs(agent: Agent, entries: ReturnType<typeof createLog>[]) {
   return {
     ...agent,
-    log: [...agent.log, ...entries].slice(-18),
+    log: [...agent.log, ...entries].slice(-12),
   };
 }
 
@@ -85,123 +117,173 @@ function getNextTeamModeValue(cmd: string, currentValue: boolean) {
   return !currentValue;
 }
 
+function estimateTokenUnits(steps: OrchestratorStepPayload[]) {
+  const characters = steps.reduce((total, step) => total + step.task.length + step.message.length + step.thought.length, 0);
+  return Math.ceil(characters / 4);
+}
+
+function compactTeamSummary(assignments: TeamAssignment[]) {
+  return `Squad activo: ${assignments.map((assignment) => assignment.subAgentName).join(", ")}`;
+}
+
+function inferRequestedAgents(command: string, agents: Agent[]) {
+  const normalized = command.toLowerCase();
+  const explicit = [...command.matchAll(/@(\w+)/gi)]
+    .map((match) => normalizeTargetId(match[1].toLowerCase(), agents))
+    .filter((agentId): agentId is string => Boolean(agentId && agentId !== "aria"));
+
+  if (explicit.length > 0) {
+    return [...new Set(explicit)].slice(0, 3);
+  }
+
+  const hasMultiCue = /\b(y|adem[aá]s|tambien|junto|sum[aá]|m[aá]s|con)\b/i.test(command);
+  const scored = ROUTING_HINTS.map((hint) => ({
+    agentId: hint.agentId,
+    score: hint.patterns.reduce((total, pattern) => total + (pattern.test(normalized) ? 1 : 0), 0),
+  }))
+    .filter((item) => item.score > 0)
+    .sort((left, right) => right.score - left.score);
+
+  const selected: string[] = [];
+  if (scored[0]) selected.push(scored[0].agentId);
+  if (scored[1] && (scored[1].score >= 2 || (hasMultiCue && scored[1].score >= 1))) selected.push(scored[1].agentId);
+  if (scored[2] && hasMultiCue && scored[2].score >= 1) selected.push(scored[2].agentId);
+
+  return [...new Set(selected)].slice(0, 3);
+}
+
+function buildStandbyAgent(agent: Agent): Agent {
+  return {
+    ...agent,
+    status: "idle",
+    animation: "idle",
+    isSummoned: false,
+    currentTask: BASE_CURRENT_TASKS[agent.id] ?? agent.currentTask,
+    activeTeamAssignments: [],
+    lane: null,
+    zone: "desk",
+    interactionTargetId: null,
+    statusDetail: null,
+  };
+}
+
+function getAgentExecutionState(agentId: string, hasMultipleSpecialists: boolean) {
+  if (agentId === "aria") {
+    return hasMultipleSpecialists ? { status: "meeting" as AgentStatus, animation: "talking" as AgentAnimation } : EXECUTION_STATE.aria;
+  }
+  return EXECUTION_STATE[agentId] ?? { status: "thinking" as AgentStatus, animation: "thinking" as AgentAnimation };
+}
+
 export function useAgents() {
   const [agents, setAgents] = useState<Agent[]>(INITIAL_AGENTS);
-  const [tasks, setTasks] = useState<Task[]>([]);
   const [metrics, setMetrics] = useState<SystemMetrics>(getInitialMetrics());
   const [teamModeEnabled, setTeamModeEnabled] = useState(true);
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const task = generateMockTask();
-      const duration = 3000 + Math.random() * 4000;
-      setTasks((prev) => [{ ...task, status: "running" }, ...prev.slice(0, 19)]);
-      setMetrics((prev) => ({ ...prev, activeTasks: prev.activeTasks + 1 }));
-      setTimeout(() => {
-        setTasks((prev) =>
-          prev.map((current) => (current.id === task.id ? { ...current, status: "done", completedAt: new Date() } : current))
-        );
-        setMetrics((prev) => ({
-          ...prev,
-          activeTasks: Math.max(0, prev.activeTasks - 1),
-          totalTasks: prev.totalTasks + 1,
-          tokensTotal: prev.tokensTotal + Math.floor(Math.random() * 8000 + 1000),
-          requestsPerMin: Math.max(10, prev.requestsPerMin + Math.floor(Math.random() * 5) - 2),
-        }));
-        setAgents((prev) =>
-          prev.map((agent) => (agent.id === task.agentId ? { ...agent, tasksCompleted: agent.tasksCompleted + 1 } : agent))
-        );
-      }, duration);
-    }, 5000);
-
-    return () => clearInterval(interval);
-  }, []);
-
   const handleCommand = useCallback(async (cmd: string) => {
-    const previousStates = new Map(agents.map((agent) => [agent.id, { status: agent.status, animation: agent.animation }]));
-    const initialTargetId = guessInitialTarget(cmd);
+    const trimmedCommand = cmd.trim();
+    if (!trimmedCommand) return;
 
-    const requestedTeamModeValue = getNextTeamModeValue(cmd, teamModeEnabled);
+    const requestedTeamModeValue = getNextTeamModeValue(trimmedCommand, teamModeEnabled);
     if (requestedTeamModeValue !== null) {
       setTeamModeEnabled(requestedTeamModeValue);
       setAgents((prev) =>
-        prev.map((agent) =>
-          agent.id === "aria"
-            ? {
-                ...appendAgentLogs(agent, [
-                  createLog("system", `AGENTS TEAM ${requestedTeamModeValue ? "ONLINE" : "OFFLINE"}`),
-                  createLog(
-                    "communication",
-                    requestedTeamModeValue
-                      ? "ARIA activa el modo Agents Team. Cada líder coordina su squad interno."
-                      : "ARIA desactiva el modo Agents Team. Los agentes vuelven a ejecución individual."
-                  ),
-                ]),
-                currentTask: requestedTeamModeValue
-                  ? "Coordinando squads internos y seguimiento de equipos..."
-                  : "Monitoreando canal de entrada...",
-                status: "thinking",
-                animation: "talking",
-              }
-            : agent
-        )
+        prev.map((agent) => {
+          if (agent.id !== "aria") {
+            return buildStandbyAgent(agent);
+          }
+
+          return appendAgentLogs(buildStandbyAgent(agent), [
+            createLog("system", `AGENTS TEAM ${requestedTeamModeValue ? "ONLINE" : "OFFLINE"}`),
+            createLog(
+              "communication",
+              requestedTeamModeValue
+                ? "ARIA deja a los squads internos listos para coordinar especialistas reales."
+                : "ARIA vuelve a ejecución individual y pausa los squads internos."
+            ),
+          ]);
+        })
       );
-
-      setTimeout(() => {
-        setAgents((prev) =>
-          prev.map((agent) =>
-            agent.id === "aria"
-              ? { ...agent, status: previousStates.get("aria")?.status ?? "idle", animation: previousStates.get("aria")?.animation ?? "idle" }
-              : agent
-          )
-        );
-      }, 1500);
-
       return;
     }
 
-    if (cmd.startsWith("/summon_all")) {
-      setAgents((prev) => prev.map((agent) => ({ ...agent, isSummoned: true, animation: "walking" })));
-      setTimeout(() => {
-        setAgents((prev) =>
-          prev.map((agent) => ({ ...agent, animation: agent.id === "zion" ? "talking" : "idle" }))
-        );
-      }, 1000);
-    }
-
-    if (cmd.startsWith("/dismiss")) {
-      setAgents((prev) => prev.map((agent) => ({ ...agent, isSummoned: false, animation: "walking" })));
-      setTimeout(() => {
-        setAgents((prev) => prev.map((agent) => ({ ...agent, animation: "idle" })));
-      }, 1000);
-      return;
-    }
-
-    setAgents((prev) =>
-      prev.map((agent) =>
-        agent.id === initialTargetId || cmd.startsWith("/")
-          ? appendAgentLogs(agent, [createLog("communication", cmd)])
-          : agent
-      )
-    );
-
-    const initialState = EXECUTION_STATE[initialTargetId];
-    if (initialState) {
+    if (trimmedCommand.startsWith("/summon_all")) {
       setAgents((prev) =>
-        prev.map((agent) =>
-          agent.id === initialTargetId
-            ? { ...agent, status: initialState.status, animation: initialState.animation }
-            : agent
-        )
+        prev.map((agent) => ({
+          ...buildStandbyAgent(agent),
+          isSummoned: agent.id !== "aria",
+          status: agent.id === "aria" ? "meeting" : "meeting",
+          animation: agent.id === "aria" ? "talking" : "walking",
+          zone: agent.id === "aria" ? "collab" : "handoff",
+          interactionTargetId: agent.id === "aria" ? null : "aria",
+          statusDetail: agent.id === "aria" ? "SUMMON ALL" : "EN TRANSITO",
+          currentTask:
+            agent.id === "aria"
+              ? "Convocando a todos los especialistas al frente."
+              : `Convocado al frente por ARIA para la siguiente solicitud.`,
+        }))
       );
+      setMetrics((prev) => ({ ...prev, activeTasks: INITIAL_AGENTS.length }));
+      return;
     }
+
+    if (trimmedCommand.startsWith("/dismiss")) {
+      setAgents((prev) => prev.map((agent) => buildStandbyAgent(agent)));
+      setMetrics((prev) => ({ ...prev, activeTasks: 0 }));
+      return;
+    }
+
+    setAgents((prev) => {
+      const requestedAgents = inferRequestedAgents(trimmedCommand, prev);
+      return prev.map((agent) => {
+        const standbyAgent = buildStandbyAgent(agent);
+        const requestedIndex = requestedAgents.indexOf(agent.id);
+        if (agent.id === "aria") {
+          return appendAgentLogs(
+            {
+              ...standbyAgent,
+              status: "meeting",
+              animation: "talking",
+              zone: "collab",
+              statusDetail: requestedAgents.length > 0 ? `ACTIVANDO ${requestedAgents.length}` : "TRIAGE",
+              currentTask:
+                requestedAgents.length > 0
+                  ? `Preparando handoff para ${requestedAgents.map((item) => item.toUpperCase()).join(", ")}.`
+                  : "Clasificando el pedido y activando especialistas...",
+            },
+            [createLog("command", trimmedCommand)]
+          );
+        }
+
+        if (requestedIndex >= 0) {
+          return {
+            ...standbyAgent,
+            status: getAgentExecutionState(agent.id, requestedAgents.length > 1).status,
+            animation: requestedAgents.length > 1 ? "walking" : getAgentExecutionState(agent.id, false).animation,
+            isSummoned: true,
+            lane: requestedIndex === 0 ? "alpha" : requestedIndex === 1 ? "beta" : "gamma",
+            zone: requestedAgents.length > 1 ? "handoff" : "desk",
+            interactionTargetId: "aria",
+            statusDetail: "EN CURSO",
+            currentTask: `Recibiendo brief de ARIA para "${trimmedCommand.slice(0, 48)}${trimmedCommand.length > 48 ? "..." : ""}"`,
+          };
+        }
+
+        return standbyAgent;
+      });
+    });
+
+    setMetrics((prev) => ({
+      ...prev,
+      activeTasks: 1,
+      requestsPerMin: prev.requestsPerMin + 1,
+    }));
 
     try {
       const res = await fetch("/api/orchestrator", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          prompt: cmd,
+          prompt: trimmedCommand,
           teamMode: teamModeEnabled,
           currentAgents: agents.map((agent) => ({ id: agent.id, name: agent.name, role: agent.role })),
         }),
@@ -225,6 +307,7 @@ export function useAgents() {
           .map((step) => normalizeTargetId(step.agentId.toLowerCase(), agents))
           .filter((agentId): agentId is string => Boolean(agentId))
       );
+      const specialistCount = [...touchedAgents].filter((agentId) => agentId !== "aria").length;
 
       setAgents((prev) =>
         prev.map((agent) => {
@@ -233,65 +316,74 @@ export function useAgents() {
           );
 
           if (matchingSteps.length === 0) {
-            return agent;
+            return buildStandbyAgent(agent);
           }
 
-          const state = EXECUTION_STATE[agent.id];
+          const latestStep = matchingSteps[matchingSteps.length - 1];
+          const state = getAgentExecutionState(agent.id, specialistCount > 1);
           const entries = matchingSteps.flatMap((step) => {
             const logs = [];
-            if (step.thought.trim()) logs.push(createLog("thought", step.thought.trim()));
-            if (step.message.trim()) logs.push(createLog("communication", step.message.trim()));
-            if (step.teamModeUsed && step.teamAssignments?.length) {
-              logs.push(createLog("system", `AGENTS TEAM: ${step.teamAssignments.length} subagentes activos`));
-              for (const assignment of step.teamAssignments) {
-                logs.push(
-                  createLog(
-                    "system",
-                    `TEAM:${assignment.subAgentName} [${assignment.subAgentRole}] ${assignment.objective}`
-                  )
-                );
-              }
+            if (step.teamModeUsed && step.teamAssignments?.length && agent.id === "aria") {
+              logs.push(createLog("system", compactTeamSummary(step.teamAssignments)));
             }
-            for (const [index, source] of (step.sources ?? []).slice(0, 4).entries()) {
-              logs.push(createLog("system", `FUENTE ${index + 1}: ${source.title} - ${source.url}`));
+            if (step.statusDetail && agent.id === "aria") {
+              logs.push(createLog("system", step.statusDetail));
+            }
+            if (step.handoffTargets?.length && agent.id === "aria") {
+              logs.push(createLog("system", `Handoff activo: ${step.handoffTargets.join(", ")}`));
+            }
+            if (step.sources?.length && agent.id === "aria") {
+              logs.push(createLog("system", `${Math.min(step.sources.length, 4)} fuentes verificadas.`));
+            }
+            if (step.message.trim()) {
+              logs.push(createLog("communication", step.message.trim()));
             }
             return logs;
           });
 
-          return {
-            ...appendAgentLogs(agent, entries),
-            currentTask: matchingSteps[matchingSteps.length - 1]?.task || agent.currentTask,
-            status: state?.status ?? agent.status,
-            animation: state?.animation ?? agent.animation,
-          };
+          const nextAgent = appendAgentLogs(
+            {
+              ...buildStandbyAgent(agent),
+              currentTask: latestStep.task || agent.currentTask,
+              status: state.status,
+              animation: state.animation,
+              isSummoned: agent.id !== "aria" && touchedAgents.has(agent.id),
+              activeTeamAssignments: latestStep.teamAssignments ?? [],
+              lane: latestStep.lane ?? null,
+              zone: latestStep.zone ?? (agent.id === "aria" ? "collab" : touchedAgents.has(agent.id) ? "handoff" : "desk"),
+              interactionTargetId: latestStep.interactionTargetId ?? null,
+              statusDetail: latestStep.statusDetail ?? null,
+              tasksCompleted: agent.tasksCompleted + (agent.id === "aria" ? 0 : 1),
+            },
+            entries
+          );
+
+          return nextAgent;
         })
       );
 
-      setTimeout(() => {
-        setAgents((prev) =>
-          prev.map((agent) => {
-            if (!touchedAgents.has(agent.id)) return agent;
-            const originalState = previousStates.get(agent.id);
-            return originalState ? { ...agent, status: originalState.status, animation: originalState.animation } : agent;
-          })
-        );
-      }, 1800);
+      setMetrics((prev) => ({
+        ...prev,
+        activeTasks: touchedAgents.size,
+        totalTasks: prev.totalTasks + Math.max(1, specialistCount),
+        tokensTotal: prev.tokensTotal + estimateTokenUnits(steps),
+      }));
     } catch (error: unknown) {
       const message = getErrorMessage(error, "Error desconocido al contactar al orquestador");
 
       setAgents((prev) =>
-        prev.map((agent) =>
-          agent.id === initialTargetId
-            ? {
-                ...appendAgentLogs(agent, [createLog("system", `ERROR: ${message}`)]),
-                status: previousStates.get(agent.id)?.status ?? "idle",
-                animation: previousStates.get(agent.id)?.animation ?? "idle",
-              }
-            : agent
-        )
+        prev.map((agent) => {
+          if (agent.id !== "aria") {
+            return buildStandbyAgent(agent);
+          }
+
+          return appendAgentLogs(buildStandbyAgent(agent), [createLog("system", `ERROR: ${message}`)]);
+        })
       );
+
+      setMetrics((prev) => ({ ...prev, activeTasks: 0 }));
     }
   }, [agents, teamModeEnabled]);
 
-  return { agents, tasks, metrics, teamModeEnabled, handleCommand };
+  return { agents, metrics, teamModeEnabled, handleCommand };
 }

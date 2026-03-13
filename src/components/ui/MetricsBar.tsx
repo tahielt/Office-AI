@@ -18,11 +18,11 @@ export default function MetricsBar({ metrics }: { metrics: SystemMetrics }) {
 
       <div className="flex items-center gap-8">
         <div className="flex flex-col items-end">
-          <span className="text-[10px] text-white/50 tracking-widest font-mono">ACTIVE ENTITIES</span>
-          <span className="text-xs font-mono text-white/80">{metrics.activeTasks} TASKS RUNNING</span>
+          <span className="text-[10px] text-white/50 tracking-widest font-mono">ACTIVE AGENTS</span>
+          <span className="text-xs font-mono text-white/80">{metrics.activeTasks} EN FOCO</span>
         </div>
         <div className="flex flex-col items-end">
-          <span className="text-[10px] text-white/50 tracking-widest font-mono">TOKENS SPENT</span>
+          <span className="text-[10px] text-white/50 tracking-widest font-mono">LOCAL TOKENS</span>
           <span className="text-xs font-mono text-white/80">{(metrics.tokensTotal / 1000000).toFixed(2)}M</span>
         </div>
         <div className="flex flex-col items-end">
