@@ -10,37 +10,6 @@ const AGENT_ALIASES: Record<string, string> = {
   pulse: "vox",
 };
 
-const ROUTING_HINTS: Array<{ agentId: string; patterns: RegExp[] }> = [
-  {
-    agentId: "scout",
-    patterns: [/\binvestig/i, /\bweb\b/i, /\bmercado\b/i, /\bcompet/i, /\btendenc/i, /\bbenchmark/i, /\bfuentes?\b/i],
-  },
-  {
-    agentId: "apex",
-    patterns: [/\bcodigo\b/i, /\bc[oó]digo\b/i, /\brepo\b/i, /\bbug\b/i, /\berror\b/i, /\bbackend\b/i, /\bfrontend\b/i, /\bdebug\b/i],
-  },
-  {
-    agentId: "vera",
-    patterns: [/\bm[eé]trica/i, /\bdatos?\b/i, /\ban[aá]lis/i, /\bkpi\b/i, /\bforecast\b/i, /\bcohort/i],
-  },
-  {
-    agentId: "zion",
-    patterns: [/\bestrateg/i, /\broadmap\b/i, /\bpriori/i, /\bplan\b/i, /\bdecision/i, /\btrade/i],
-  },
-  {
-    agentId: "forge",
-    patterns: [/\bautomat/i, /\bworkflow\b/i, /\bn8n\b/i, /\bwebhook\b/i, /\btrigger\b/i, /\bpipeline\b/i, /\bintegr/i],
-  },
-  {
-    agentId: "echo",
-    patterns: [/\bemail\b/i, /\bmail\b/i, /\bmensaje/i, /\bcliente\b/i, /\bfollow/i, /\bpropuesta\b/i],
-  },
-  {
-    agentId: "vox",
-    patterns: [/\bcontenido\b/i, /\breel\b/i, /\bpost\b/i, /\bguion\b/i, /\bcaption\b/i, /\bcopy\b/i],
-  },
-];
-
 const EXECUTION_STATE: Record<string, { status: AgentStatus; animation: AgentAnimation }> = {
   scout: { status: "researching", animation: "thinking" },
   apex: { status: "coding", animation: "typing" },
@@ -126,32 +95,6 @@ function compactTeamSummary(assignments: TeamAssignment[]) {
   return `Squad activo: ${assignments.map((assignment) => assignment.subAgentName).join(", ")}`;
 }
 
-function inferRequestedAgents(command: string, agents: Agent[]) {
-  const normalized = command.toLowerCase();
-  const explicit = [...command.matchAll(/@(\w+)/gi)]
-    .map((match) => normalizeTargetId(match[1].toLowerCase(), agents))
-    .filter((agentId): agentId is string => Boolean(agentId && agentId !== "aria"));
-
-  if (explicit.length > 0) {
-    return [...new Set(explicit)].slice(0, 3);
-  }
-
-  const hasMultiCue = /\b(y|adem[aá]s|tambien|junto|sum[aá]|m[aá]s|con)\b/i.test(command);
-  const scored = ROUTING_HINTS.map((hint) => ({
-    agentId: hint.agentId,
-    score: hint.patterns.reduce((total, pattern) => total + (pattern.test(normalized) ? 1 : 0), 0),
-  }))
-    .filter((item) => item.score > 0)
-    .sort((left, right) => right.score - left.score);
-
-  const selected: string[] = [];
-  if (scored[0]) selected.push(scored[0].agentId);
-  if (scored[1] && (scored[1].score >= 2 || (hasMultiCue && scored[1].score >= 1))) selected.push(scored[1].agentId);
-  if (scored[2] && hasMultiCue && scored[2].score >= 1) selected.push(scored[2].agentId);
-
-  return [...new Set(selected)].slice(0, 3);
-}
-
 function buildStandbyAgent(agent: Agent): Agent {
   return {
     ...agent,
@@ -232,11 +175,9 @@ export function useAgents() {
       return;
     }
 
-    setAgents((prev) => {
-      const requestedAgents = inferRequestedAgents(trimmedCommand, prev);
-      return prev.map((agent) => {
+    setAgents((prev) =>
+      prev.map((agent) => {
         const standbyAgent = buildStandbyAgent(agent);
-        const requestedIndex = requestedAgents.indexOf(agent.id);
         if (agent.id === "aria") {
           return appendAgentLogs(
             {
@@ -244,33 +185,16 @@ export function useAgents() {
               status: "meeting",
               animation: "talking",
               zone: "collab",
-              statusDetail: requestedAgents.length > 0 ? `ACTIVANDO ${requestedAgents.length}` : "TRIAGE",
-              currentTask:
-                requestedAgents.length > 0
-                  ? `Preparando handoff para ${requestedAgents.map((item) => item.toUpperCase()).join(", ")}.`
-                  : "Clasificando el pedido y activando especialistas...",
+              statusDetail: "TRIAGE REAL",
+              currentTask: "Clasificando el pedido y esperando la decisión real de ARIA...",
             },
             [createLog("command", trimmedCommand)]
           );
         }
 
-        if (requestedIndex >= 0) {
-          return {
-            ...standbyAgent,
-            status: getAgentExecutionState(agent.id, requestedAgents.length > 1).status,
-            animation: requestedAgents.length > 1 ? "walking" : getAgentExecutionState(agent.id, false).animation,
-            isSummoned: true,
-            lane: requestedIndex === 0 ? "alpha" : requestedIndex === 1 ? "beta" : "gamma",
-            zone: requestedAgents.length > 1 ? "handoff" : "desk",
-            interactionTargetId: "aria",
-            statusDetail: "EN CURSO",
-            currentTask: `Recibiendo brief de ARIA para "${trimmedCommand.slice(0, 48)}${trimmedCommand.length > 48 ? "..." : ""}"`,
-          };
-        }
-
         return standbyAgent;
-      });
-    });
+      })
+    );
 
     setMetrics((prev) => ({
       ...prev,
