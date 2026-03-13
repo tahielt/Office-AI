@@ -1,31 +1,105 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
-import { Agent, Task, SystemMetrics } from "@/types/agent";
+
+import { useCallback, useEffect, useState } from "react";
+
 import { INITIAL_AGENTS, generateMockTask, getInitialMetrics } from "@/lib/agents";
+import { Agent, AgentAnimation, AgentStatus, SystemMetrics, Task, TeamAssignment } from "@/types/agent";
+
+const AGENT_ALIASES: Record<string, string> = {
+  lyra: "scout",
+  pulse: "vox",
+};
+
+const EXECUTION_STATE: Record<string, { status: AgentStatus; animation: AgentAnimation }> = {
+  scout: { status: "researching", animation: "thinking" },
+  apex: { status: "coding", animation: "typing" },
+  vera: { status: "analyzing", animation: "thinking" },
+  zion: { status: "thinking", animation: "thinking" },
+  forge: { status: "running", animation: "typing" },
+  echo: { status: "thinking", animation: "typing" },
+  vox: { status: "thinking", animation: "typing" },
+  aria: { status: "thinking", animation: "talking" },
+};
+
+type OrchestratorErrorPayload = {
+  error?: string;
+};
+
+type OrchestratorStepPayload = {
+  agentId: string;
+  task: string;
+  thought: string;
+  message: string;
+  provider: string;
+  teamAssignments?: TeamAssignment[];
+  teamModeUsed?: boolean;
+  sources?: Array<{
+    title: string;
+    url: string;
+    snippet: string;
+  }>;
+};
+
+type OrchestratorSuccessPayload = {
+  steps?: OrchestratorStepPayload[];
+};
+
+function normalizeTargetId(rawId: string | null, agents: Agent[]) {
+  if (!rawId) return null;
+  const normalized = AGENT_ALIASES[rawId] ?? rawId;
+  if (agents.some((agent) => agent.id === normalized)) return normalized;
+  return agents.find((agent) => agent.id.startsWith(normalized))?.id ?? null;
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
+}
+
+function guessInitialTarget(cmd: string) {
+  if (cmd.startsWith("/report_status") || cmd.startsWith("/summon_all")) return "zion";
+  if (cmd.startsWith("/dismiss")) return "aria";
+  return "aria";
+}
+
+function createLog(type: "system" | "thought" | "communication", text: string) {
+  return {
+    id: crypto.randomUUID(),
+    type,
+    text,
+    timestamp: new Date(),
+  };
+}
+
+function appendAgentLogs(agent: Agent, entries: ReturnType<typeof createLog>[]) {
+  return {
+    ...agent,
+    log: [...agent.log, ...entries].slice(-18),
+  };
+}
+
+function getNextTeamModeValue(cmd: string, currentValue: boolean) {
+  const lower = cmd.toLowerCase().trim();
+  if (!lower.startsWith("/team_mode")) return null;
+  if (/\b(on|enable|1|true)\b/.test(lower)) return true;
+  if (/\b(off|disable|0|false)\b/.test(lower)) return false;
+  return !currentValue;
+}
 
 export function useAgents() {
   const [agents, setAgents] = useState<Agent[]>(INITIAL_AGENTS);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [metrics, setMetrics] = useState<SystemMetrics>(getInitialMetrics());
-  const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
+  const [teamModeEnabled, setTeamModeEnabled] = useState(true);
 
-  // Inicializar logIndex dinámicamente desde INITIAL_AGENTS
-  const [logIndex, setLogIndex] = useState<Record<string, number>>(
-    () => Object.fromEntries(INITIAL_AGENTS.map(a => [a.id, 0]))
-  );
-
-  // Simular completado de tareas
   useEffect(() => {
     const interval = setInterval(() => {
       const task = generateMockTask();
       const duration = 3000 + Math.random() * 4000;
-
       setTasks((prev) => [{ ...task, status: "running" }, ...prev.slice(0, 19)]);
       setMetrics((prev) => ({ ...prev, activeTasks: prev.activeTasks + 1 }));
-
       setTimeout(() => {
         setTasks((prev) =>
-          prev.map((t) => t.id === task.id ? { ...t, status: "done", completedAt: new Date() } : t)
+          prev.map((current) => (current.id === task.id ? { ...current, status: "done", completedAt: new Date() } : current))
         );
         setMetrics((prev) => ({
           ...prev,
@@ -35,102 +109,92 @@ export function useAgents() {
           requestsPerMin: Math.max(10, prev.requestsPerMin + Math.floor(Math.random() * 5) - 2),
         }));
         setAgents((prev) =>
-          prev.map((a) => a.id === task.agentId ? { ...a, tasksCompleted: a.tasksCompleted + 1 } : a)
+          prev.map((agent) => (agent.id === task.agentId ? { ...agent, tasksCompleted: agent.tasksCompleted + 1 } : agent))
         );
       }, duration);
     }, 5000);
+
     return () => clearInterval(interval);
   }, []);
 
-  // Sincronizar agente seleccionado
-  useEffect(() => {
-    if (selectedAgent) {
-      const updated = agents.find((a) => a.id === selectedAgent.id);
-      if (updated) setSelectedAgent(updated);
-    }
-  }, [agents]);
-
-  const selectAgent = useCallback((agent: Agent | null) => {
-    setSelectedAgent(agent);
-  }, []);
-
   const handleCommand = useCallback(async (cmd: string) => {
-    // Detectar agente destino desde @Nombre
-    const match = cmd.match(/^@(\w+)/i);
-    let targetId = match ? match[1].toLowerCase() : null;
+    const previousStates = new Map(agents.map((agent) => [agent.id, { status: agent.status, animation: agent.animation }]));
+    const initialTargetId = guessInitialTarget(cmd);
 
-    // Verificar que el agente existe
-    if (targetId && !agents.some(a => a.id === targetId)) {
-      // Intentar match parcial (ej: "scout" → "scout")
-      const partial = agents.find(a => a.id.startsWith(targetId!));
-      targetId = partial?.id || null;
+    const requestedTeamModeValue = getNextTeamModeValue(cmd, teamModeEnabled);
+    if (requestedTeamModeValue !== null) {
+      setTeamModeEnabled(requestedTeamModeValue);
+      setAgents((prev) =>
+        prev.map((agent) =>
+          agent.id === "aria"
+            ? {
+                ...appendAgentLogs(agent, [
+                  createLog("system", `AGENTS TEAM ${requestedTeamModeValue ? "ONLINE" : "OFFLINE"}`),
+                  createLog(
+                    "communication",
+                    requestedTeamModeValue
+                      ? "ARIA activa el modo Agents Team. Cada líder coordina su squad interno."
+                      : "ARIA desactiva el modo Agents Team. Los agentes vuelven a ejecución individual."
+                  ),
+                ]),
+                currentTask: requestedTeamModeValue
+                  ? "Coordinando squads internos y seguimiento de equipos..."
+                  : "Monitoreando canal de entrada...",
+                status: "thinking",
+                animation: "talking",
+              }
+            : agent
+        )
+      );
+
+      setTimeout(() => {
+        setAgents((prev) =>
+          prev.map((agent) =>
+            agent.id === "aria"
+              ? { ...agent, status: previousStates.get("aria")?.status ?? "idle", animation: previousStates.get("aria")?.animation ?? "idle" }
+              : agent
+          )
+        );
+      }, 1500);
+
+      return;
     }
 
-    // Comandos globales
     if (cmd.startsWith("/summon_all")) {
-      setAgents((prev) => prev.map(a => ({ ...a, isSummoned: true, animation: "walking" })));
+      setAgents((prev) => prev.map((agent) => ({ ...agent, isSummoned: true, animation: "walking" })));
       setTimeout(() => {
-        setAgents((prev) => prev.map(a => ({
-          ...a,
-          animation: a.id === "zion" ? "talking" : "idle",
-        })));
+        setAgents((prev) =>
+          prev.map((agent) => ({ ...agent, animation: agent.id === "zion" ? "talking" : "idle" }))
+        );
       }, 1000);
-      // El orquestador responde como ZION
-      targetId = "zion";
     }
 
     if (cmd.startsWith("/dismiss")) {
-      setAgents((prev) => prev.map(a => ({ ...a, isSummoned: false, animation: "walking" })));
+      setAgents((prev) => prev.map((agent) => ({ ...agent, isSummoned: false, animation: "walking" })));
       setTimeout(() => {
-        setAgents((prev) => prev.map(a => ({ ...a, animation: "idle" })));
+        setAgents((prev) => prev.map((agent) => ({ ...agent, animation: "idle" })));
       }, 1000);
       return;
     }
 
-    // Fallback inteligente si no se especificó agente
-    if (!targetId) {
-      const lower = cmd.toLowerCase();
-      if (lower.includes("código") || lower.includes("bug") || lower.includes("typescript") || lower.includes("función")) {
-        targetId = "apex";
-      } else if (lower.includes("datos") || lower.includes("métrica") || lower.includes("análisis")) {
-        targetId = "vera";
-      } else if (lower.includes("mercado") || lower.includes("competencia") || lower.includes("tendencia")) {
-        targetId = "scout";
-      } else if (lower.includes("email") || lower.includes("mensaje") || lower.includes("redactar")) {
-        targetId = "echo";
-      } else if (lower.includes("automatizar") || lower.includes("api") || lower.includes("webhook")) {
-        targetId = "forge";
-      } else if (lower.includes("reseña") || lower.includes("review") || lower.includes("reputación")) {
-        targetId = "pulse";
-      } else if (cmd.startsWith("/report_status")) {
-        targetId = "zion";
-      } else {
-        targetId = "zion";
-      }
+    setAgents((prev) =>
+      prev.map((agent) =>
+        agent.id === initialTargetId || cmd.startsWith("/")
+          ? appendAgentLogs(agent, [createLog("communication", cmd)])
+          : agent
+      )
+    );
+
+    const initialState = EXECUTION_STATE[initialTargetId];
+    if (initialState) {
+      setAgents((prev) =>
+        prev.map((agent) =>
+          agent.id === initialTargetId
+            ? { ...agent, status: initialState.status, animation: initialState.animation }
+            : agent
+        )
+      );
     }
-
-    // Agregar el mensaje del usuario al log del agente destino
-    setAgents((prev) =>
-      prev.map((agent) => {
-        if (targetId === agent.id || cmd.startsWith("/")) {
-          const userLog = {
-            id: crypto.randomUUID(),
-            type: "communication" as const,
-            text: cmd,
-            timestamp: new Date(),
-          };
-          return { ...agent, log: [...agent.log.slice(-14), userLog] };
-        }
-        return agent;
-      })
-    );
-
-    if (!targetId) return;
-
-    // Poner al agente en modo "pensando"
-    setAgents((prev) =>
-      prev.map((a) => a.id === targetId ? { ...a, status: "thinking", animation: "thinking" } : a)
-    );
 
     try {
       const res = await fetch("/api/orchestrator", {
@@ -138,114 +202,96 @@ export function useAgents() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt: cmd,
-          currentAgents: agents.map(a => ({ id: a.id, name: a.name, role: a.role })),
+          teamMode: teamModeEnabled,
+          currentAgents: agents.map((agent) => ({ id: agent.id, name: agent.name, role: agent.role })),
         }),
       });
 
+      const payload = (await res.json().catch(() => null)) as
+        | (OrchestratorSuccessPayload & OrchestratorErrorPayload)
+        | null;
+
       if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || "Error al conectar con el orquestador");
+        throw new Error(payload?.error || "Error al conectar con el orquestador");
       }
 
-      if (!res.body) throw new Error("Sin stream de respuesta");
+      const steps = payload?.steps ?? [];
+      if (steps.length === 0) {
+        throw new Error("El orquestador no devolvió pasos ejecutables");
+      }
 
-      const responseLogId = crypto.randomUUID();
-      const thoughtLogId = crypto.randomUUID();
+      const touchedAgents = new Set(
+        steps
+          .map((step) => normalizeTargetId(step.agentId.toLowerCase(), agents))
+          .filter((agentId): agentId is string => Boolean(agentId))
+      );
 
-      // Placeholders iniciales
       setAgents((prev) =>
         prev.map((agent) => {
-          if (agent.id === targetId) {
-            return {
-              ...agent,
-              status: "thinking",
-              log: [
-                ...agent.log.slice(-13),
-                { id: thoughtLogId, type: "thought" as const, text: "", timestamp: new Date() },
-                { id: responseLogId, type: "communication" as const, text: "...", timestamp: new Date() },
-              ],
-            };
+          const matchingSteps = steps.filter(
+            (step) => normalizeTargetId(step.agentId.toLowerCase(), prev) === agent.id
+          );
+
+          if (matchingSteps.length === 0) {
+            return agent;
           }
-          return agent;
+
+          const state = EXECUTION_STATE[agent.id];
+          const entries = matchingSteps.flatMap((step) => {
+            const logs = [];
+            if (step.thought.trim()) logs.push(createLog("thought", step.thought.trim()));
+            if (step.message.trim()) logs.push(createLog("communication", step.message.trim()));
+            if (step.teamModeUsed && step.teamAssignments?.length) {
+              logs.push(createLog("system", `AGENTS TEAM: ${step.teamAssignments.length} subagentes activos`));
+              for (const assignment of step.teamAssignments) {
+                logs.push(
+                  createLog(
+                    "system",
+                    `TEAM:${assignment.subAgentName} [${assignment.subAgentRole}] ${assignment.objective}`
+                  )
+                );
+              }
+            }
+            for (const [index, source] of (step.sources ?? []).slice(0, 4).entries()) {
+              logs.push(createLog("system", `FUENTE ${index + 1}: ${source.title} - ${source.url}`));
+            }
+            return logs;
+          });
+
+          return {
+            ...appendAgentLogs(agent, entries),
+            currentTask: matchingSteps[matchingSteps.length - 1]?.task || agent.currentTask,
+            status: state?.status ?? agent.status,
+            animation: state?.animation ?? agent.animation,
+          };
         })
       );
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let fullText = "";
-      
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      setTimeout(() => {
+        setAgents((prev) =>
+          prev.map((agent) => {
+            if (!touchedAgents.has(agent.id)) return agent;
+            const originalState = previousStates.get(agent.id);
+            return originalState ? { ...agent, status: originalState.status, animation: originalState.animation } : agent;
+          })
+        );
+      }, 1800);
+    } catch (error: unknown) {
+      const message = getErrorMessage(error, "Error desconocido al contactar al orquestador");
 
-        const chunk = decoder.decode(value, { stream: true });
-        // En Next.js App Router con streamText, los chunks de texto llegan con el prefix '0:'
-        // Ej: 0:"Hola mundo"\n
-        const lines = chunk.split('\n');
-        
-        for (const line of lines) {
-          if (line.startsWith('0:')) {
-            try {
-              // Extraer el string JSON parseable
-              const textChunk = JSON.parse(line.slice(2));
-              fullText += textChunk;
-              
-              let thoughtContent = "";
-              let communicationContent = "";
-
-              // Parsear tags <THOUGHT>
-              const thoughtMatch = fullText.match(/<THOUGHT>([\s\S]*?)<\/THOUGHT>/i);
-
-              if (thoughtMatch) {
-                thoughtContent = thoughtMatch[1].trim();
-                communicationContent = fullText.substring(thoughtMatch.index! + thoughtMatch[0].length).trim();
-              } else if (fullText.includes("<THOUGHT>")) {
-                thoughtContent = fullText.substring(fullText.indexOf("<THOUGHT>") + 9).trim();
-                communicationContent = "";
-              } else {
-                communicationContent = fullText.trim();
-              }
-
-              // Actualizar logs en tiempo real
-              setAgents((prev) =>
-                prev.map((agent) => {
-                  if (agent.id !== targetId) return agent;
-                  const logs = [...agent.log];
-                  const ti = logs.findIndex(l => l.id === thoughtLogId);
-                  const ci = logs.findIndex(l => l.id === responseLogId);
-                  if (ti > -1) logs[ti] = { ...logs[ti], text: thoughtContent || "Procesando..." };
-                  if (ci > -1) logs[ci] = { ...logs[ci], text: communicationContent || "..." };
-                  const animation = communicationContent.length > 0 ? "typing" : "thinking";
-                  return { ...agent, log: logs, animation };
-                })
-              );
-            } catch (e) {
-              // Ignorar parsing errors en chunks parciales
-            }
-          }
-        }
-      }
-
-      // Respuesta completa — volver a idle
-      setAgents((prev) =>
-        prev.map((a) => a.id === targetId ? { ...a, status: "idle", animation: "idle" } : a)
-      );
-    } catch (error: any) {
-      const errorLog = {
-        id: crypto.randomUUID(),
-        type: "system" as const,
-        text: `ERROR: ${error.message}`,
-        timestamp: new Date(),
-      };
       setAgents((prev) =>
         prev.map((agent) =>
-          agent.id === targetId
-            ? { ...agent, status: "idle", animation: "idle", log: [...agent.log.slice(-14), errorLog] }
+          agent.id === initialTargetId
+            ? {
+                ...appendAgentLogs(agent, [createLog("system", `ERROR: ${message}`)]),
+                status: previousStates.get(agent.id)?.status ?? "idle",
+                animation: previousStates.get(agent.id)?.animation ?? "idle",
+              }
             : agent
         )
       );
     }
-  }, [agents]);
+  }, [agents, teamModeEnabled]);
 
-  return { agents, tasks, metrics, selectedAgent, selectAgent, handleCommand };
+  return { agents, tasks, metrics, teamModeEnabled, handleCommand };
 }

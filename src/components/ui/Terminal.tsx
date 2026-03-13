@@ -5,6 +5,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 
 interface Props {
   agents: Agent[];
+  teamModeEnabled: boolean;
   onCommand: (cmd: string) => void;
 }
 
@@ -12,9 +13,8 @@ const MIN_HEIGHT = 48;   // colapsado — solo header
 const DEFAULT_HEIGHT = 220;
 const MAX_HEIGHT = 520;
 
-export default function Terminal({ agents, onCommand }: Props) {
+export default function Terminal({ agents, teamModeEnabled, onCommand }: Props) {
   const [input, setInput] = useState("");
-  const [mounted, setMounted] = useState(false);
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
@@ -23,8 +23,6 @@ export default function Terminal({ agents, onCommand }: Props) {
   const dragStartHeight = useRef(0);
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => { setMounted(true); }, []);
 
   // Combinar logs de todos los agentes en feed global
   const allLogs = agents
@@ -146,6 +144,16 @@ export default function Terminal({ agents, onCommand }: Props) {
           <span className="text-[10px] tracking-[0.2em] font-mono text-cyan-400/80 uppercase">
             Centro de Comandos
           </span>
+          <span
+            className="text-[8px] font-mono tracking-[0.18em] px-1.5 py-0.5 rounded-sm"
+            style={{
+              color: teamModeEnabled ? "#00f5ff" : "rgba(255,255,255,0.4)",
+              background: teamModeEnabled ? "rgba(0,245,255,0.12)" : "rgba(255,255,255,0.05)",
+              border: `1px solid ${teamModeEnabled ? "rgba(0,245,255,0.28)" : "rgba(255,255,255,0.08)"}`,
+            }}
+          >
+            {teamModeEnabled ? "AGENTS TEAM ONLINE" : "AGENTS TEAM OFF"}
+          </span>
           {/* Indicador de logs activos */}
           <div className="flex gap-1 ml-2">
             {agents.filter(a => a.status !== "idle").map(a => (
@@ -192,11 +200,13 @@ export default function Terminal({ agents, onCommand }: Props) {
           {allLogs.map((log) => (
             <div key={log.id} className="flex gap-2 group">
               {/* Timestamp */}
-              <span className="text-white/20 shrink-0 select-none tabular-nums">
-                {mounted
-                  ? log.timestamp.toLocaleTimeString("es-AR", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" })
-                  : "··:··:··"
-                }
+              <span className="text-white/20 shrink-0 select-none tabular-nums" suppressHydrationWarning>
+                {log.timestamp.toLocaleTimeString("es-AR", {
+                  hour12: false,
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  second: "2-digit",
+                })}
               </span>
 
               {/* Contenido según tipo */}
@@ -236,11 +246,12 @@ export default function Terminal({ agents, onCommand }: Props) {
               { cmd: "/summon_all", label: "Convocar todos" },
               { cmd: "/dismiss", label: "Dispersar" },
               { cmd: "/report_status", label: "Estado del sistema" },
-              { cmd: "@scout analizar competencia", label: "@ Scout" },
-              { cmd: "@apex revisar código", label: "@ Apex" },
-              { cmd: "@forge automatizar", label: "@ Forge" },
-              { cmd: "@echo redactar email", label: "@ Echo" },
-              { cmd: "@pulse revisar reseñas", label: "@ Pulse" },
+              { cmd: "/team_mode", label: "Agents Team" },
+              { cmd: "@aria decile a @scout que investigue competencia", label: "ARIA -> Scout" },
+              { cmd: "@aria pedile a @apex que revise el código", label: "ARIA -> Apex" },
+              { cmd: "@aria delegale a @forge una automatización", label: "ARIA -> Forge" },
+              { cmd: "@aria pedile a @echo un email comercial", label: "ARIA -> Echo" },
+              { cmd: "@aria pedile a @vox contenido para redes", label: "ARIA -> Vox" },
             ].map(({ cmd, label }) => (
               <button
                 key={cmd}
@@ -267,7 +278,7 @@ export default function Terminal({ agents, onCommand }: Props) {
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Hablá con @aria o asigná tareas a tus agentes..."
+              placeholder="Hablá con @aria. Ella coordina squads internos para cada agente..."
               className="flex-1 bg-transparent font-mono text-[12px] focus:outline-none placeholder:text-white/20"
               style={{ color: "#e2e8f0" }}
             />

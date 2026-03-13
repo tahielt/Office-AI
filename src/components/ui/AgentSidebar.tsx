@@ -1,23 +1,27 @@
 "use client";
 import { Agent } from "@/types/agent";
 import { STATUS_CONFIG } from "@/lib/agents";
-import { useState, useEffect } from "react";
+import { useSyncExternalStore } from "react";
 
 interface Props {
   agents: Agent[];
+  teamModeEnabled: boolean;
 }
 
-export default function AgentSidebar({ agents }: Props) {
-  const [time, setTime] = useState<string | null>(null);
+function subscribeToClock(onStoreChange: () => void) {
+  const timer = window.setInterval(onStoreChange, 1000);
+  return () => window.clearInterval(timer);
+}
 
-  useEffect(() => {
-    const fmt = () => new Date().toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
-    setTime(fmt());
-    const timer = setInterval(() => setTime(fmt()), 60000);
-    return () => clearInterval(timer);
-  }, []);
+function getClockSnapshot() {
+  return new Date().toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+}
+
+export default function AgentSidebar({ agents, teamModeEnabled }: Props) {
+  const time = useSyncExternalStore(subscribeToClock, getClockSnapshot, () => null);
 
   const activeCount = agents.filter(a => a.status !== "idle" && a.status !== "done").length;
+  const totalSubAgents = agents.reduce((count, agent) => count + agent.teamMembers.length, 0);
 
   return (
     <div className="w-[280px] shrink-0 h-full flex flex-col gap-2">
@@ -39,6 +43,16 @@ export default function AgentSidebar({ agents }: Props) {
             <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
             <span className="text-[10px] font-mono text-emerald-400/80">
               {activeCount} activos
+            </span>
+            <span
+              className="text-[8px] font-mono tracking-[0.18em] px-1.5 py-0.5 rounded-sm"
+              style={{
+                color: teamModeEnabled ? "#00f5ff" : "rgba(255,255,255,0.35)",
+                background: teamModeEnabled ? "rgba(0,245,255,0.12)" : "rgba(255,255,255,0.05)",
+                border: `1px solid ${teamModeEnabled ? "rgba(0,245,255,0.3)" : "rgba(255,255,255,0.08)"}`,
+              }}
+            >
+              {teamModeEnabled ? `AGENTS TEAM ${totalSubAgents}` : "TEAM OFF"}
             </span>
           </div>
         </div>
@@ -109,6 +123,21 @@ export default function AgentSidebar({ agents }: Props) {
                   <span className="text-[9px] text-white/30 uppercase tracking-wider">
                     {agent.role}
                   </span>
+                  <div className="flex items-center gap-1 mt-1">
+                    <span
+                      className="text-[8px] font-mono tracking-[0.18em] px-1.5 py-0.5 rounded-sm"
+                      style={{
+                        color: agent.color,
+                        background: `${agent.color}12`,
+                        border: `1px solid ${agent.color}28`,
+                      }}
+                    >
+                      {agent.teamLead ? "BRAIN" : `SQUAD ${agent.teamMembers.length}`}
+                    </span>
+                    <span className="text-[8px] font-mono text-white/20 tracking-[0.18em]">
+                      {teamModeEnabled ? "SUBAGENTES ONLINE" : "SUBAGENTES EN ESPERA"}
+                    </span>
+                  </div>
                 </div>
               </div>
 
@@ -119,6 +148,23 @@ export default function AgentSidebar({ agents }: Props) {
               >
                 <span style={{ color: agent.color + "80" }}>› </span>
                 {agent.currentTask}
+              </div>
+
+              <div className="flex flex-wrap gap-1 relative z-10">
+                {agent.teamMembers.map((member) => (
+                  <span
+                    key={`${agent.id}-${member.id}`}
+                    className="text-[8px] font-mono tracking-[0.16em] px-1.5 py-0.5 rounded-sm"
+                    style={{
+                      color: teamModeEnabled ? agent.color : "rgba(255,255,255,0.35)",
+                      background: teamModeEnabled ? `${agent.color}10` : "rgba(255,255,255,0.04)",
+                      border: `1px solid ${teamModeEnabled ? agent.color + "20" : "rgba(255,255,255,0.06)"}`,
+                    }}
+                    title={`${member.role}: ${member.specialty}`}
+                  >
+                    {member.name}
+                  </span>
+                ))}
               </div>
 
               {/* Barra de progreso */}

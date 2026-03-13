@@ -17,6 +17,20 @@ export interface LogEntry {
   timestamp: Date;
 }
 
+export interface SubAgent {
+  id: string;
+  name: string;
+  role: string;
+  specialty: string;
+}
+
+export interface TeamAssignment {
+  subAgentId: string;
+  subAgentName: string;
+  subAgentRole: string;
+  objective: string;
+}
+
 export type AgentAnimation = 
   | "typing" 
   | "idle" 
@@ -43,6 +57,8 @@ export interface Agent {
   avatar: string;
   position: { x: number; y: number };
   log: LogEntry[];
+  teamMembers: SubAgent[];
+  teamLead?: boolean;
 }
 
 export interface Task {

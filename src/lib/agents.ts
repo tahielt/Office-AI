@@ -1,4 +1,5 @@
 import { Agent, Task, SystemMetrics, AgentStatus } from "@/types/agent";
+import { getTeamMembersForAgent } from "@/lib/agentTeams";
 
 export const INITIAL_AGENTS: Agent[] = [
   {
@@ -6,6 +7,7 @@ export const INITIAL_AGENTS: Agent[] = [
     status: "researching", currentTask: "Analizando competencia en turismo Patagonia Q1",
     tasksCompleted: 142, tokensUsed: 2400000, uptime: "14d 6h", avatar: "SC",
     animation: "idle", isSummoned: false, position: { x: 1, y: 1 },
+    teamMembers: getTeamMembersForAgent("scout"),
     log: [
       { id: "s1", type: "system",        text: "Conectando a fuentes de datos de mercado...", timestamp: new Date() },
       { id: "s2", type: "thought",       text: "12 competidores nuevos en Bariloche. Filtrando por relevancia...", timestamp: new Date() },
@@ -17,6 +19,7 @@ export const INITIAL_AGENTS: Agent[] = [
     status: "coding", currentTask: "Refactorizando módulo de autenticación — JWT → OAuth2",
     tasksCompleted: 89, tokensUsed: 1800000, uptime: "7d 2h", avatar: "AX",
     animation: "idle", isSummoned: false, position: { x: 2, y: 1 },
+    teamMembers: getTeamMembersForAgent("apex"),
     log: [
       { id: "a1", type: "system",        text: "Leyendo auth/middleware.ts (412 líneas)...", timestamp: new Date() },
       { id: "a2", type: "thought",       text: "3 referencias JWT. Creando adaptador OAuth2.", timestamp: new Date() },
@@ -28,6 +31,7 @@ export const INITIAL_AGENTS: Agent[] = [
     status: "analyzing", currentTask: "Construyendo modelo de forecast de ingresos Q3",
     tasksCompleted: 213, tokensUsed: 3100000, uptime: "21d 4h", avatar: "VR",
     animation: "idle", isSummoned: false, position: { x: 1, y: 2 },
+    teamMembers: getTeamMembersForAgent("vera"),
     log: [
       { id: "v1", type: "system",        text: "Cargando dataset (84.231 filas)...", timestamp: new Date() },
       { id: "v2", type: "thought",       text: "Varianza alta en Q2. Ajustando pesos de regresión.", timestamp: new Date() },
@@ -39,6 +43,7 @@ export const INITIAL_AGENTS: Agent[] = [
     status: "thinking", currentTask: "Evaluando expansión de mercado — LATAM vs APAC",
     tasksCompleted: 67, tokensUsed: 920000, uptime: "3d 11h", avatar: "ZN",
     animation: "idle", isSummoned: false, position: { x: 2, y: 2 },
+    teamMembers: getTeamMembersForAgent("zion"),
     log: [
       { id: "z1", type: "system",        text: "Comparando estimaciones de TAM...", timestamp: new Date() },
       { id: "z2", type: "thought",       text: "Regulaciones LATAM muestran cuellos de botella.", timestamp: new Date() },
@@ -50,6 +55,7 @@ export const INITIAL_AGENTS: Agent[] = [
     status: "running", currentTask: "Conectando API de MercadoPago con sistema de reservas",
     tasksCompleted: 54, tokensUsed: 980000, uptime: "5d 3h", avatar: "FG",
     animation: "idle", isSummoned: false, position: { x: 3, y: 1 },
+    teamMembers: getTeamMembersForAgent("forge"),
     log: [
       { id: "f1", type: "system",        text: "Inicializando conector MercadoPago v3...", timestamp: new Date() },
       { id: "f2", type: "thought",       text: "Race condition en webhook. Necesito mutex.", timestamp: new Date() },
@@ -61,6 +67,7 @@ export const INITIAL_AGENTS: Agent[] = [
     status: "idle", currentTask: "Redactando seguimiento de propuestas enviadas esta semana",
     tasksCompleted: 38, tokensUsed: 560000, uptime: "2d 8h", avatar: "EC",
     animation: "idle", isSummoned: false, position: { x: 2, y: 3 },
+    teamMembers: getTeamMembersForAgent("echo"),
     log: [
       { id: "e1", type: "system",        text: "Cargando plantillas de email...", timestamp: new Date() },
       { id: "e2", type: "thought",       text: "3 propuestas sin respuesta +5 días. Redactando follow-ups.", timestamp: new Date() },
@@ -72,6 +79,7 @@ export const INITIAL_AGENTS: Agent[] = [
     status: "idle", currentTask: "Generando Reels para campaña de temporada alta",
     tasksCompleted: 77, tokensUsed: 1240000, uptime: "6d 2h", avatar: "VX",
     animation: "idle", isSummoned: false, position: { x: 3, y: 2 },
+    teamMembers: getTeamMembersForAgent("vox"),
     log: [
       { id: "vx1", type: "system",        text: "Cargando briefing de campaña de invierno...", timestamp: new Date() },
       { id: "vx2", type: "thought",       text: "3 formatos: Reel 30s, carrusel LinkedIn, story IG. Adaptando copy.", timestamp: new Date() },
@@ -79,10 +87,12 @@ export const INITIAL_AGENTS: Agent[] = [
     ],
   },
   {
-    id: "aria", name: "ARIA", role: "Recepcionista IA", color: "#e2e8f0",
-    status: "idle", currentTask: "Monitoreando canal de entrada...",
+    id: "aria", name: "ARIA", role: "Secretaria IA y Cerebro Principal", color: "#e2e8f0",
+    status: "idle", currentTask: "Monitoreando canal de entrada y coordinando squads...",
     tasksCompleted: 0, tokensUsed: 0, uptime: "∞", avatar: "AR",
     animation: "idle", isSummoned: false, position: { x: 0, y: 0 },
+    teamMembers: getTeamMembersForAgent("aria"),
+    teamLead: true,
     log: [],
   },
 ];
