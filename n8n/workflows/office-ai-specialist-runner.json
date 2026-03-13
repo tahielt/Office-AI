@@ -2,45 +2,162 @@
   "name": "Office AI - Specialist Runner",
   "nodes": [
     {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "specialist-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        220,
+        240
+      ]
+    },
+    {
       "parameters": {},
-      "id": "manual-trigger-runner",
+      "id": "specialist-manual",
       "name": "Manual Trigger",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
-      "position": [260, 300]
+      "position": [
+        220,
+        420
+      ]
     },
     {
       "parameters": {
-        "assignments": {
-          "assignments": [
-            {
-              "id": "stage",
-              "name": "stage",
-              "value": "specialist-runner",
-              "type": "string"
-            },
-            {
-              "id": "goal",
-              "name": "goal",
-              "value": "ejecutar squads por lane con retries",
-              "type": "string"
-            }
-          ]
-        }
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [\n  {\n    json: {\n      requestId: 'manual-office-ai',\n      lead: 'FORGE',\n      task: 'Convertir la idea en un workflow operable y gratis',\n      responseMode: 'rapid',\n      briefSummary: 'FORGE: bajar implementacion y automatizacion',\n      freeOnly: true,\n    },\n  },\n];"
       },
-      "id": "run-specialists",
-      "name": "Run Specialists",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
-      "position": [540, 300]
+      "id": "sample-specialist-brief",
+      "name": "Sample Specialist Brief",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const specialistMap = {\n  SCOUT: ['web-scan', 'source-check'],\n  APEX: ['repo-scan', 'risk-check'],\n  ZION: ['market-framing', 'priority-map'],\n  FORGE: ['workflow-map', 'ops-check'],\n  ECHO: ['summary-shaper', 'clarity-pass'],\n  VERA: ['risk-audit', 'policy-pass'],\n  VOX: ['messaging-pass', 'formatting-pass'],\n};\nreturn items.map((item) => ({\n  json: {\n    ...item.json,\n    specialists: specialistMap[item.json.lead] ?? ['generalist-pass'],\n  },\n}));"
+      },
+      "id": "plan-specialists",
+      "name": "Plan Specialists",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 1,
+        "unit": "seconds"
+      },
+      "id": "specialist-pause",
+      "name": "Parallel Window",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1040,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const generated = [];\nfor (const item of items) {\n  const source = item.json;\n  const specialists = Array.isArray(source.specialists) ? source.specialists : [];\n  for (const specialist of specialists) {\n    generated.push({\n      json: {\n        requestId: source.requestId,\n        lead: source.lead,\n        specialist,\n        task: source.task,\n        finding: `${specialist} encontro una oportunidad concreta para ${source.lead}`,\n        risk: `${specialist} marco una dependencia a vigilar`,\n        nextStep: `${specialist} propone ejecutar una accion corta y medible`,\n        freeOnly: true,\n      },\n    });\n  }\n}\nreturn generated;"
+      },
+      "id": "simulate-specialist-work",
+      "name": "Simulate Specialist Work",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const groups = new Map();\nfor (const item of items) {\n  const lead = item.json.lead ?? 'SCOUT';\n  if (!groups.has(lead)) {\n    groups.set(lead, {\n      requestId: item.json.requestId ?? 'manual',\n      lead,\n      findings: [],\n      risks: [],\n      nextSteps: [],\n      specialists: [],\n      freeOnly: true,\n    });\n  }\n  const entry = groups.get(lead);\n  entry.findings.push(item.json.finding);\n  entry.risks.push(item.json.risk);\n  entry.nextSteps.push(item.json.nextStep);\n  entry.specialists.push(item.json.specialist);\n}\nreturn Array.from(groups.values()).map((entry) => ({\n  json: {\n    ...entry,\n    specialistCount: entry.specialists.length,\n    latencyMs: entry.specialists.length * 350,\n    leadSummary: `${entry.lead} consolido ${entry.specialists.length} especialista(s)`,\n  },\n}));"
+      },
+      "id": "assemble-lead-output",
+      "name": "Assemble Lead Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1580,
+        300
+      ]
     }
   ],
   "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Plan Specialists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Manual Trigger": {
       "main": [
         [
           {
-            "node": "Run Specialists",
+            "node": "Sample Specialist Brief",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sample Specialist Brief": {
+      "main": [
+        [
+          {
+            "node": "Plan Specialists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Plan Specialists": {
+      "main": [
+        [
+          {
+            "node": "Parallel Window",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parallel Window": {
+      "main": [
+        [
+          {
+            "node": "Simulate Specialist Work",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simulate Specialist Work": {
+      "main": [
+        [
+          {
+            "node": "Assemble Lead Output",
             "type": "main",
             "index": 0
           }
@@ -49,10 +166,14 @@
     }
   },
   "pinData": {},
-  "settings": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
   "staticData": null,
   "meta": {
-    "templateCredsSetupCompleted": true
+    "templateCredsSetupCompleted": true,
+    "officeAiFreeOnly": true
   },
-  "active": false
+  "active": false,
+  "description": "Ejecuta squads internos por lead usando solo logica local de n8n y devuelve un consolidado por lider."
 }

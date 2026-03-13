@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "n8n": "powershell -ExecutionPolicy Bypass -File ./scripts/start-n8n-repo.ps1",
     "n8n:import": "powershell -ExecutionPolicy Bypass -File ./scripts/import-n8n-workflows.ps1",
-    "n8n:where": "powershell -ExecutionPolicy Bypass -File ./scripts/show-n8n-locations.ps1"
+    "n8n:where": "powershell -ExecutionPolicy Bypass -File ./scripts/show-n8n-locations.ps1",
+    "n8n:sync:office": "node --experimental-sqlite ./scripts/sync-office-ai-workflows.mjs"
   },
   "dependencies": {
     "@ai-sdk/google": "^3.0.43",

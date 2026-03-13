@@ -2,51 +2,215 @@
   "name": "Office AI - Intake Router",
   "nodes": [
     {
-      "parameters": {},
-      "id": "manual-trigger-intake",
-      "name": "Manual Trigger",
-      "type": "n8n-nodes-base.manualTrigger",
-      "typeVersion": 1,
-      "position": [260, 300]
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "office-ai/intake",
+        "responseMode": "responseNode"
+      },
+      "id": "webhook-intake",
+      "name": "Office Intake Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        240,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const input = items[0]?.json ?? {};\nconst payload = input.body && typeof input.body === 'object' ? input.body : input;\nconst prompt = [payload.prompt, payload.task, payload.message, payload.text]\n  .find((value) => typeof value === 'string' && value.trim()) ?? 'Analizar la tarea actual de Office AI';\nconst requested = String(prompt).toLowerCase();\nconst mentionMap = {\n  scout: 'SCOUT',\n  apex: 'APEX',\n  zion: 'ZION',\n  forge: 'FORGE',\n  echo: 'ECHO',\n  vera: 'VERA',\n  vox: 'VOX',\n};\nconst mentionedAgents = Object.entries(mentionMap)\n  .filter(([token]) => requested.includes(token))\n  .map(([, agent]) => agent);\nconst inferredAgents = [];\nif (/investig|compet|mercado|tendencia|web/.test(requested)) inferredAgents.push('SCOUT');\nif (/repo|backend|codigo|arquitect|bug|infra/.test(requested)) inferredAgents.push('APEX');\nif (/estrateg|growth|negocio|roadmap|plan/.test(requested)) inferredAgents.push('ZION');\nif (/workflow|automat|n8n|deploy|implement/.test(requested)) inferredAgents.push('FORGE');\nconst leadAgents = [...new Set([...mentionedAgents, ...inferredAgents])].slice(0, 3);\nconst complexityScore =\n  prompt.length +\n  leadAgents.length * 35 +\n  (/profundo|deep|completo|detallado/.test(requested) ? 80 : 0);\nconst responseMode = complexityScore >= 160 ? 'deep' : 'rapid';\nreturn [\n  {\n    json: {\n      requestId: payload.requestId ?? 'req-' + Date.now(),\n      task: prompt,\n      leadAgents: leadAgents.length ? leadAgents : ['SCOUT'],\n      source: payload.source ?? 'webhook',\n      freeOnly: true,\n      complexityScore,\n      responseMode,\n      maxLatencyMs: responseMode === 'rapid' ? 2500 : 4500,\n    },\n  },\n];"
+      },
+      "id": "normalize-intake",
+      "name": "Normalize Intake",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{$json.responseMode === 'deep' ? 1 : 0}}"
+      },
+      "id": "switch-mode",
+      "name": "Route Mode",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        800,
+        260
+      ]
     },
     {
       "parameters": {
         "assignments": {
           "assignments": [
             {
-              "id": "route-name",
-              "name": "route",
-              "value": "intake-router",
+              "id": "lane-b1c5fddd",
+              "name": "lane",
+              "value": "rapid",
               "type": "string"
             },
             {
-              "id": "max-leads",
-              "name": "maxLeads",
-              "value": "3",
-              "type": "string"
+              "id": "targetLatencyMs-699e398a",
+              "name": "targetLatencyMs",
+              "value": 2500,
+              "type": "number"
             },
             {
-              "id": "response-mode",
-              "name": "responseMode",
-              "value": "rapid-or-deep",
+              "id": "handoffPlan-10e72a5d",
+              "name": "handoffPlan",
+              "value": "brief-builder -> specialist-runner -> compact-assembler",
               "type": "string"
             }
           ]
-        }
+        },
+        "includeOtherFields": true
       },
-      "id": "normalize-payload",
-      "name": "Normalize Payload",
+      "id": "rapid-lane",
+      "name": "Rapid Lane",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [540, 300]
+      "position": [
+        1080,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "lane-b37a55e8",
+              "name": "lane",
+              "value": "deep",
+              "type": "string"
+            },
+            {
+              "id": "targetLatencyMs-4c7b1646",
+              "name": "targetLatencyMs",
+              "value": 4500,
+              "type": "number"
+            },
+            {
+              "id": "handoffPlan-b5a906e8",
+              "name": "handoffPlan",
+              "value": "brief-builder -> specialist-runner -> full-assembler",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true
+      },
+      "id": "deep-lane",
+      "name": "Deep Lane",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1080,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const current = items[0]?.json ?? {};\nconst leadAgents = Array.isArray(current.leadAgents) ? current.leadAgents : [];\nconst leadCount = Math.min(leadAgents.length || 1, 3);\nreturn [\n  {\n    json: {\n      ...current,\n      leadCount,\n      summary: `ARIA envio la tarea por la lane ${current.lane} con ${leadCount} lead(s)`,\n      stages: ['intake-router', 'lead-brief-builder', 'specialist-runner', 'response-assembler'],\n    },\n  },\n];"
+      },
+      "id": "finalize-route",
+      "name": "Finalize Route",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1350,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem"
+      },
+      "id": "respond-intake",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1600,
+        260
+      ]
     }
   ],
   "connections": {
-    "Manual Trigger": {
+    "Office Intake Webhook": {
       "main": [
         [
           {
-            "node": "Normalize Payload",
+            "node": "Normalize Intake",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Intake": {
+      "main": [
+        [
+          {
+            "node": "Route Mode",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Mode": {
+      "main": [
+        [
+          {
+            "node": "Rapid Lane",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Deep Lane",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rapid Lane": {
+      "main": [
+        [
+          {
+            "node": "Finalize Route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deep Lane": {
+      "main": [
+        [
+          {
+            "node": "Finalize Route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finalize Route": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
             "type": "main",
             "index": 0
           }
@@ -55,10 +219,14 @@
     }
   },
   "pinData": {},
-  "settings": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
   "staticData": null,
   "meta": {
-    "templateCredsSetupCompleted": true
+    "templateCredsSetupCompleted": true,
+    "officeAiFreeOnly": true
   },
-  "active": false
+  "active": false,
+  "description": "Webhook gratuito que normaliza pedidos, estima complejidad y enruta la tarea por lane rapid o deep sin usar APIs pagas."
 }

@@ -2,45 +2,136 @@
   "name": "Office AI - Response Assembler",
   "nodes": [
     {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "assembler-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        220,
+        240
+      ]
+    },
+    {
       "parameters": {},
-      "id": "manual-trigger-assembler",
+      "id": "assembler-manual",
       "name": "Manual Trigger",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
-      "position": [260, 300]
+      "position": [
+        220,
+        420
+      ]
     },
     {
       "parameters": {
-        "assignments": {
-          "assignments": [
-            {
-              "id": "stage",
-              "name": "stage",
-              "value": "response-assembler",
-              "type": "string"
-            },
-            {
-              "id": "goal",
-              "name": "goal",
-              "value": "consolidar lanes y devolver a ARIA",
-              "type": "string"
-            }
-          ]
-        }
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [\n  {\n    json: {\n      requestId: 'manual-office-ai',\n      lead: 'SCOUT',\n      findings: ['Competidor X acelera con contenido tecnico'],\n      risks: ['Falta una metrica unificada'],\n      nextSteps: ['Comparar pricing y mensajes'],\n      latencyMs: 900,\n    },\n  },\n  {\n    json: {\n      requestId: 'manual-office-ai',\n      lead: 'FORGE',\n      findings: ['La automatizacion puede fragmentarse sin costo'],\n      risks: ['Hay que evitar duplicar bases de n8n'],\n      nextSteps: ['Unificar sync de workflows'],\n      latencyMs: 1100,\n    },\n  },\n];"
       },
-      "id": "assemble-response",
-      "name": "Assemble Response",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
-      "position": [540, 300]
+      "id": "sample-lead-results",
+      "name": "Sample Lead Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return items.map((item) => ({\n  json: {\n    requestId: item.json.requestId ?? 'manual',\n    lead: item.json.lead ?? 'SCOUT',\n    findings: Array.isArray(item.json.findings) ? item.json.findings : [],\n    risks: Array.isArray(item.json.risks) ? item.json.risks : [],\n    nextSteps: Array.isArray(item.json.nextSteps) ? item.json.nextSteps : [],\n    latencyMs: Number(item.json.latencyMs ?? 0),\n    freeOnly: true,\n  },\n}));"
+      },
+      "id": "normalize-results",
+      "name": "Normalize Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const seen = new Set();\nconst leadResults = items.map((item) => item.json);\nconst findings = [];\nconst risks = [];\nconst nextSteps = [];\nlet latencyMs = 0;\nfor (const result of leadResults) {\n  latencyMs += Number(result.latencyMs ?? 0);\n  for (const finding of result.findings) {\n    if (!seen.has('f:' + finding)) {\n      seen.add('f:' + finding);\n      findings.push(finding);\n    }\n  }\n  for (const risk of result.risks) {\n    if (!seen.has('r:' + risk)) {\n      seen.add('r:' + risk);\n      risks.push(risk);\n    }\n  }\n  for (const step of result.nextSteps) {\n    if (!seen.has('s:' + step)) {\n      seen.add('s:' + step);\n      nextSteps.push(step);\n    }\n  }\n}\nreturn [\n  {\n    json: {\n      requestId: leadResults[0]?.requestId ?? 'manual',\n      leadResults,\n      findings,\n      risks,\n      nextSteps,\n      latencyMs,\n      freeOnly: true,\n    },\n  },\n];"
+      },
+      "id": "deduplicate-findings",
+      "name": "Deduplicate Findings",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1060,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const data = items[0]?.json ?? {};\nconst fronts = Array.isArray(data.leadResults) ? data.leadResults.length : 0;\nreturn [\n  {\n    json: {\n      requestId: data.requestId ?? 'manual',\n      ariaSummary: `ARIA cerro ${fronts} frente(s) de trabajo con salida gratis y orquestada`,\n      steps: data.nextSteps ?? [],\n      findings: data.findings ?? [],\n      risks: data.risks ?? [],\n      sources: [],\n      latencyMs: data.latencyMs ?? 0,\n      freeOnly: true,\n    },\n  },\n];"
+      },
+      "id": "compose-aria-summary",
+      "name": "Compose ARIA Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1340,
+        300
+      ]
     }
   ],
   "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Normalize Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Manual Trigger": {
       "main": [
         [
           {
-            "node": "Assemble Response",
+            "node": "Sample Lead Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sample Lead Results": {
+      "main": [
+        [
+          {
+            "node": "Normalize Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Results": {
+      "main": [
+        [
+          {
+            "node": "Deduplicate Findings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deduplicate Findings": {
+      "main": [
+        [
+          {
+            "node": "Compose ARIA Summary",
             "type": "main",
             "index": 0
           }
@@ -49,10 +140,14 @@
     }
   },
   "pinData": {},
-  "settings": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
   "staticData": null,
   "meta": {
-    "templateCredsSetupCompleted": true
+    "templateCredsSetupCompleted": true,
+    "officeAiFreeOnly": true
   },
-  "active": false
+  "active": false,
+  "description": "Consolida resultados de leads y arma el cierre final de ARIA sin usar servicios pagos."
 }
