@@ -1,0 +1,242 @@
+{
+  "name": "Oracle AI - ZION",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "zion-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "oracle-ai/zion",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "zion-webhook",
+      "name": "Incoming Request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        240,
+        340
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "zion-manual",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [\n  {\n    json: {\n      requestId: 'manual-zion-' + Date.now(),\n      prompt: 'Define una estrategia simple y priorizada para ejecutar la tarea.',\n      requestedBy: 'ARIA',\n      source: 'manual',\n      freeOnly: true,\n    },\n  },\n];"
+      },
+      "id": "zion-sample-request",
+      "name": "Sample Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const payload = $json.body && typeof $json.body === 'object' ? $json.body : $json;\nconst rawPrompt = String(payload.prompt ?? payload.message ?? payload.task ?? '').trim();\nconst prompt = rawPrompt || 'Define una estrategia simple y priorizada para ejecutar la tarea.';\nreturn [\n  {\n    json: {\n      requestId: payload.requestId ?? 'req-' + Date.now(),\n      workflow: 'Oracle AI - ZION',\n      agentId: 'ZION',\n      role: 'Estrategia',\n      specialty: 'Convierte informacion en direccion, foco y roadmap.',\n      prompt,\n      requestedBy: String(payload.requestedBy ?? 'ARIA'),\n      source: payload.source ?? ($json.body ? 'webhook' : 'workflow'),\n      freeOnly: true,\n    },\n  },\n];"
+      },
+      "id": "zion-normalize",
+      "name": "Normalize Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const prompt = $json.prompt ?? '';\nconst compactTask = prompt.length > 140 ? prompt.slice(0, 137) + '...' : prompt;\nreturn {\n  json: {\n    ...$json,\n    task: compactTask,\n    thought: 'ZION reviso el pedido y produjo una salida corta y accionable.',\n    message: 'ZION recomienda ejecutar un frente puntual alineado con su especialidad.',\n    findings: [\n      'ZION detecto una oportunidad clara vinculada al pedido',\n      'ZION sugiere mantener foco en una sola decision por iteracion',\n    ],\n    risks: [\n      'ZION marco una dependencia o supuesto a validar',\n    ],\n    nextSteps: [\n      'ZION propone un siguiente paso corto y medible',\n      'Cerrar con sintesis desde ARIA',\n    ],\n    latencyMs: 900,\n  },\n};"
+      },
+      "id": "zion-build-output",
+      "name": "Build Specialist Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        820,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{$json.source === 'webhook' ? 1 : 0}}"
+      },
+      "id": "zion-return-mode",
+      "name": "Return Mode",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        1100,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "resultMode-c54c5a06",
+              "name": "resultMode",
+              "value": "manual-preview",
+              "type": "string"
+            },
+            {
+              "id": "summarySource-14885cc9",
+              "name": "summarySource",
+              "value": "zion-preview",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true
+      },
+      "id": "zion-preview",
+      "name": "Preview Result",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1360,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem"
+      },
+      "id": "zion-respond",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1360,
+        440
+      ]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Incoming Request": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Sample Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sample Request": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Build Specialist Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Specialist Output": {
+      "main": [
+        [
+          {
+            "node": "Return Mode",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Return Mode": {
+      "main": [
+        [
+          {
+            "node": "Preview Result",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "freeOnly": true,
+    "oracleAiWorkflow": true
+  },
+  "active": true,
+  "description": "ZION trabaja como subworkflow gratis de Oracle AI con webhook, execute trigger y camino manual."
+}
