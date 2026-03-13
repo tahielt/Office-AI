@@ -58,7 +58,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const payload = $json.body && typeof $json.body === 'object' ? $json.body : $json;\nconst rawPrompt = String(payload.prompt ?? payload.message ?? payload.task ?? '').trim();\nconst prompt = rawPrompt || 'Define una estrategia simple y priorizada para ejecutar la tarea.';\nreturn [\n  {\n    json: {\n      requestId: payload.requestId ?? 'req-' + Date.now(),\n      workflow: 'Oracle AI - ZION',\n      agentId: 'ZION',\n      role: 'Estrategia',\n      specialty: 'Convierte informacion en direccion, foco y roadmap.',\n      prompt,\n      requestedBy: String(payload.requestedBy ?? 'ARIA'),\n      source: payload.source ?? ($json.body ? 'webhook' : 'workflow'),\n      freeOnly: true,\n    },\n  },\n];"
+        "jsCode": "const payload = $json.body && typeof $json.body === 'object' ? $json.body : $json;\nconst rawPrompt = String(payload.prompt ?? payload.message ?? payload.task ?? '').trim();\nconst prompt = rawPrompt || 'Define una estrategia simple y priorizada para ejecutar la tarea.';\nreturn [\n  {\n    json: {\n      requestId: payload.requestId ?? 'req-' + Date.now(),\n      workflow: 'Oracle AI - ZION',\n      agentId: 'ZION',\n      role: 'Estrategia',\n      specialty: 'Convierte informacion en direccion, foco y roadmap.',\n      prompt,\n      requestedBy: String(payload.requestedBy ?? 'ARIA'),\n      source: payload.source ?? ($json.body ? 'webhook' : 'workflow'),\n      cutoffReason: payload.cutoffReason ?? 'not-needed',\n      executionOrder: payload.executionOrder ?? [],\n      tieBreakerContext: payload.tieBreakerContext ?? null,\n      freeOnly: true,\n    },\n  },\n];"
       },
       "id": "zion-normalize",
       "name": "Normalize Input",
@@ -72,7 +72,7 @@
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "const prompt = $json.prompt ?? '';\nconst compactTask = prompt.length > 140 ? prompt.slice(0, 137) + '...' : prompt;\nreturn {\n  json: {\n    ...$json,\n    task: compactTask,\n    thought: 'ZION reviso el pedido y produjo una salida corta y accionable.',\n    message: 'ZION recomienda ejecutar un frente puntual alineado con su especialidad.',\n    findings: [\n      'ZION detecto una oportunidad clara vinculada al pedido',\n      'ZION sugiere mantener foco en una sola decision por iteracion',\n    ],\n    risks: [\n      'ZION marco una dependencia o supuesto a validar',\n    ],\n    nextSteps: [\n      'ZION propone un siguiente paso corto y medible',\n      'Cerrar con sintesis desde ARIA',\n    ],\n    latencyMs: 900,\n  },\n};"
+        "jsCode": "const prompt = $json.prompt ?? '';\nconst compactTask = prompt.length > 140 ? prompt.slice(0, 137) + '...' : prompt;\nreturn {\n  json: {\n    ...$json,\n    task: compactTask,\n    thought: 'ZION reviso el pedido y produjo una salida corta y accionable.',\n    message: 'ZION recomienda ejecutar un frente puntual alineado con su especialidad.',\n    findings: [\n      'ZION detecto una oportunidad clara vinculada al pedido',\n      'ZION sugiere mantener foco en una sola decision por iteracion',\n    ],\n    risks: [\n      'ZION marco una dependencia o supuesto a validar',\n    ],\n    nextSteps: [\n      'ZION propone un siguiente paso corto y medible',\n      'Cerrar con sintesis desde ARIA',\n    ],\n    latencyMs: 900,\n    cutoffReason: $json.cutoffReason ?? 'not-needed',\n    executionOrder: $json.executionOrder ?? [],\n    tieBreakerContext: $json.tieBreakerContext ?? null,\n  },\n};"
       },
       "id": "zion-build-output",
       "name": "Build Specialist Output",
@@ -103,13 +103,13 @@
         "assignments": {
           "assignments": [
             {
-              "id": "resultMode-3b384fe9",
+              "id": "resultMode-67fc4fd0",
               "name": "resultMode",
               "value": "manual-preview",
               "type": "string"
             },
             {
-              "id": "summarySource-1ae9bc14",
+              "id": "summarySource-693f9522",
               "name": "summarySource",
               "value": "zion-preview",
               "type": "string"

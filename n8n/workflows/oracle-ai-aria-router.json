@@ -45,7 +45,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const payload = $json.body && typeof $json.body === 'object' ? $json.body : $json;\nconst prompt = String(payload.prompt ?? payload.message ?? payload.task ?? '').trim() || 'Resolver un pedido general para Oracle AI';\nconst lower = prompt.toLowerCase();\nconst scoreMap = new Map([\n  ['SCOUT', 0],\n  ['APEX', 0],\n  ['VERA', 0],\n  ['ZION', 0],\n  ['FORGE', 0],\n  ['ECHO', 0],\n  ['VOX', 0],\n]);\nconst explicitMentions = [];\nfor (const agentId of scoreMap.keys()) {\n  if (lower.includes(agentId.toLowerCase())) {\n    explicitMentions.push(agentId);\n    scoreMap.set(agentId, (scoreMap.get(agentId) ?? 0) + 120);\n  }\n}\nconst weightedSignals = [\n  ['SCOUT', /(investig|mercado|compet|web|tendencia|noticia|research)/, 90],\n  ['APEX', /(repo|backend|frontend|codigo|arquitect|error|bug|next|react)/, 85],\n  ['VERA', /(riesgo|metrica|analisis|dato|forecast|dashboard)/, 78],\n  ['ZION', /(estrateg|roadmap|prioridad|negocio|growth)/, 80],\n  ['FORGE', /(workflow|n8n|automat|integracion|deploy|operaci)/, 82],\n  ['ECHO', /(mensaje|mail|cliente|copy|respuesta|comunic)/, 68],\n  ['VOX', /(post|reel|contenido|instagram|linkedin|youtube|tiktok)/, 68],\n];\nfor (const [agentId, pattern, weight] of weightedSignals) {\n  if (pattern.test(lower)) {\n    scoreMap.set(agentId, (scoreMap.get(agentId) ?? 0) + weight);\n  }\n}\nconst rankedAgents = [...scoreMap.entries()]\n  .filter(([, score]) => score > 0)\n  .sort((left, right) => right[1] - left[1])\n  .map(([agentId]) => agentId);\nconst complexityScore =\n  prompt.length +\n  rankedAgents.length * 28 +\n  (/profundo|deep|completo|detallado/.test(lower) ? 70 : 0);\nconst topScore = scoreMap.get(rankedAgents[0] ?? 'SCOUT') ?? 0;\nconst secondScore = scoreMap.get(rankedAgents[1] ?? '') ?? 0;\nconst maxAgents = explicitMentions.length === 1\n  ? 1\n  : topScore >= 110 && secondScore < 55\n    ? 1\n    : complexityScore < 170\n      ? 2\n      : 3;\nconst targetAgents = (rankedAgents.length ? rankedAgents : ['SCOUT']).slice(0, maxAgents);\nconst cutoffReason = maxAgents === 1\n  ? (explicitMentions.length === 1 ? 'explicit-single-agent' : 'single-high-confidence-agent')\n  : maxAgents === 2\n    ? 'balanced-duo-cap'\n    : 'three-agent-expansion';\nreturn [\n  {\n    json: {\n      requestId: payload.requestId ?? 'req-' + Date.now(),\n      prompt,\n      source: payload.source ?? ($json.body ? 'webhook' : 'manual'),\n      requestedBy: String(payload.requestedBy ?? 'USER'),\n      targetAgents: targetAgents.length ? targetAgents : ['SCOUT'],\n      executionOrder: targetAgents.map((agentId, index) => ({\n        agentId,\n        order: index + 1,\n        score: scoreMap.get(agentId) ?? 0,\n      })),\n      maxAgents,\n      cutoffReason,\n      earlyStopEligible: maxAgents === 1,\n      complexityScore,\n      freeOnly: true,\n    },\n  },\n];"
+        "jsCode": "const payload = $json.body && typeof $json.body === 'object' ? $json.body : $json;\nconst prompt = String(payload.prompt ?? payload.message ?? payload.task ?? '').trim() || 'Resolver un pedido general para Oracle AI';\nconst lower = prompt.toLowerCase();\nconst scoreMap = new Map([\n  ['SCOUT', 0],\n  ['APEX', 0],\n  ['VERA', 0],\n  ['ZION', 0],\n  ['FORGE', 0],\n  ['ECHO', 0],\n  ['VOX', 0],\n]);\nconst explicitMentions = [];\nfor (const agentId of scoreMap.keys()) {\n  if (lower.includes(agentId.toLowerCase())) {\n    explicitMentions.push(agentId);\n    scoreMap.set(agentId, (scoreMap.get(agentId) ?? 0) + 120);\n  }\n}\nconst weightedSignals = [\n  ['SCOUT', /(investig|mercado|compet|web|tendencia|noticia|research)/, 90],\n  ['APEX', /(repo|backend|frontend|codigo|arquitect|error|bug|next|react)/, 85],\n  ['VERA', /(riesgo|metrica|analisis|dato|forecast|dashboard)/, 78],\n  ['ZION', /(estrateg|roadmap|prioridad|negocio|growth)/, 80],\n  ['FORGE', /(workflow|n8n|automat|integracion|deploy|operaci)/, 82],\n  ['ECHO', /(mensaje|mail|cliente|copy|respuesta|comunic)/, 68],\n  ['VOX', /(post|reel|contenido|instagram|linkedin|youtube|tiktok)/, 68],\n];\nfor (const [agentId, pattern, weight] of weightedSignals) {\n  if (pattern.test(lower)) {\n    scoreMap.set(agentId, (scoreMap.get(agentId) ?? 0) + weight);\n  }\n}\nconst rankedAgents = [...scoreMap.entries()]\n  .filter(([, score]) => score > 0)\n  .sort((left, right) => right[1] - left[1])\n  .map(([agentId]) => agentId);\nconst complexityScore =\n  prompt.length +\n  rankedAgents.length * 28 +\n  (/profundo|deep|completo|detallado/.test(lower) ? 70 : 0);\nconst topScore = scoreMap.get(rankedAgents[0] ?? 'SCOUT') ?? 0;\nconst secondScore = scoreMap.get(rankedAgents[1] ?? '') ?? 0;\nconst maxAgents = explicitMentions.length === 1\n  ? 1\n  : topScore >= 110 && secondScore < 55\n    ? 1\n    : complexityScore < 170\n      ? 2\n      : 3;\nconst targetAgents = (rankedAgents.length ? rankedAgents : ['SCOUT']).slice(0, maxAgents);\nconst cutoffReason = maxAgents === 1\n  ? (explicitMentions.length === 1 ? 'explicit-single-agent' : 'single-high-confidence-agent')\n  : maxAgents === 2\n    ? 'balanced-duo-cap'\n    : 'three-agent-expansion';\nreturn [\n  {\n    json: {\n      requestId: payload.requestId ?? 'req-' + Date.now(),\n      prompt,\n      source: payload.source ?? ($json.body ? 'webhook' : 'manual'),\n      requestedBy: String(payload.requestedBy ?? 'USER'),\n      targetAgents: targetAgents.length ? targetAgents : ['SCOUT'],\n      executionOrder: targetAgents.map((agentId, index) => ({\n        agentId,\n        order: index + 1,\n        score: scoreMap.get(agentId) ?? 0,\n      })),\n      reserveAgents: rankedAgents.slice(maxAgents, 3),\n      maxAgents,\n      cutoffReason,\n      earlyStopEligible: maxAgents === 1,\n      complexityScore,\n      freeOnly: true,\n    },\n  },\n];"
       },
       "id": "aria-normalize",
       "name": "Normalize Request",
@@ -59,7 +59,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const workflowMap = {\n  \"SCOUT\": \"__SCOUT_WORKFLOW_ID__\",\n  \"APEX\": \"__APEX_WORKFLOW_ID__\",\n  \"VERA\": \"__VERA_WORKFLOW_ID__\",\n  \"ZION\": \"__ZION_WORKFLOW_ID__\",\n  \"FORGE\": \"__FORGE_WORKFLOW_ID__\",\n  \"ECHO\": \"__ECHO_WORKFLOW_ID__\",\n  \"VOX\": \"__VOX_WORKFLOW_ID__\"\n};\nconst source = items[0]?.json ?? {};\nconst targetAgents = Array.isArray(source.targetAgents) && source.targetAgents.length ? source.targetAgents : ['SCOUT'];\nreturn targetAgents.map((agentId, index) => ({\n  json: {\n    requestId: source.requestId,\n    prompt: source.prompt,\n    source: source.source,\n    requestedBy: 'ARIA',\n    targetAgent: agentId,\n    workflowId: workflowMap[agentId],\n    agentIndex: index + 1,\n    executionOrder: source.executionOrder ?? [],\n    maxAgents: source.maxAgents ?? targetAgents.length,\n    cutoffReason: source.cutoffReason ?? 'fallback',\n    earlyStopEligible: source.earlyStopEligible ?? false,\n    complexityScore: source.complexityScore ?? 0,\n    freeOnly: true,\n  },\n})).filter((item) => Boolean(item.json.workflowId));"
+        "jsCode": "const workflowMap = {\n  \"SCOUT\": \"__SCOUT_WORKFLOW_ID__\",\n  \"APEX\": \"__APEX_WORKFLOW_ID__\",\n  \"VERA\": \"__VERA_WORKFLOW_ID__\",\n  \"ZION\": \"__ZION_WORKFLOW_ID__\",\n  \"FORGE\": \"__FORGE_WORKFLOW_ID__\",\n  \"ECHO\": \"__ECHO_WORKFLOW_ID__\",\n  \"VOX\": \"__VOX_WORKFLOW_ID__\"\n};\nconst source = items[0]?.json ?? {};\nconst targetAgents = Array.isArray(source.targetAgents) && source.targetAgents.length ? source.targetAgents : ['SCOUT'];\nreturn targetAgents.map((agentId, index) => ({\n  json: {\n    requestId: source.requestId,\n    prompt: source.prompt,\n    source: source.source,\n    requestedBy: 'ARIA',\n    targetAgent: agentId,\n    workflowId: workflowMap[agentId],\n    agentIndex: index + 1,\n    executionOrder: source.executionOrder ?? [],\n    reserveAgents: source.reserveAgents ?? [],\n    maxAgents: source.maxAgents ?? targetAgents.length,\n    cutoffReason: source.cutoffReason ?? 'fallback',\n    earlyStopEligible: source.earlyStopEligible ?? false,\n    complexityScore: source.complexityScore ?? 0,\n    freeOnly: true,\n  },\n})).filter((item) => Boolean(item.json.workflowId));"
       },
       "id": "aria-expand-agents",
       "name": "Expand Agent Targets",
@@ -91,14 +91,103 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const results = items.map((item) => item.json);\nconst agents = results.map((result) => result.agentId);\nconst decisionMode = agents.length <= 1 ? 'single-agent' : 'multi-agent';\nreturn [\n  {\n    json: {\n      requestId: results[0]?.requestId ?? 'manual',\n      source: results[0]?.source ?? 'manual',\n      requestedBy: results[0]?.requestedBy ?? 'USER',\n      selectedAgents: agents,\n      executionOrder: results.map((result, index) => ({\n        agentId: result.agentId,\n        order: index + 1,\n      })),\n      delegated: agents.length > 0,\n      ariaSummary: agents.length <= 1\n        ? 'ARIA aplico corte temprano y resolvio el pedido con un solo agente en Oracle AI.'\n        : 'ARIA coordino ' + agents.length + ' agente(s) en Oracle AI.',\n      decisionMode,\n      cutoffReason: results[0]?.cutoffReason ?? 'fallback',\n      results,\n      freeOnly: true,\n    },\n  },\n];"
+        "jsCode": "const results = items.map((item) => item.json);\nconst reserveAgents = Array.isArray(results[0]?.reserveAgents) ? results[0].reserveAgents : [];\nconst lowerPrompt = String(results[0]?.prompt ?? '').toLowerCase();\nconst familyMap = {\n  SCOUT: 'discovery',\n  VERA: 'discovery',\n  APEX: 'build',\n  FORGE: 'build',\n  ZION: 'strategy',\n  ECHO: 'message',\n  VOX: 'message',\n};\nconst families = [...new Set(results.map((result) => familyMap[result.agentId] ?? 'general'))];\nconst conflictSignals = /(versus| vs |compar|elegir|tradeoff|conflict|contradic|priorizar|balance|decision|primero)/.test(lowerPrompt);\nconst tieBreakerAgent = reserveAgents[0] ?? null;\nconst tieBreakerRequired = Boolean(tieBreakerAgent) && results.length === 2 && (conflictSignals || families.length > 1);\nreturn [\n  {\n    json: {\n      ...results[0],\n      originalResults: results,\n      tieBreakerRequired,\n      tieBreakerAgent,\n      tieBreakerReason: tieBreakerRequired\n        ? (conflictSignals ? 'prompt-signals-conflict' : 'cross-discipline-conflict')\n        : 'not-needed',\n    },\n  },\n];"
+      },
+      "id": "aria-detect-tie-break",
+      "name": "Detect Oracle Tie Break",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1390,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{$json.tieBreakerRequired ? 1 : 0}}"
+      },
+      "id": "aria-tie-break-gate",
+      "name": "Oracle Tie Break Gate",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        1670,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const workflowMap = {\n  \"SCOUT\": \"__SCOUT_WORKFLOW_ID__\",\n  \"APEX\": \"__APEX_WORKFLOW_ID__\",\n  \"VERA\": \"__VERA_WORKFLOW_ID__\",\n  \"ZION\": \"__ZION_WORKFLOW_ID__\",\n  \"FORGE\": \"__FORGE_WORKFLOW_ID__\",\n  \"ECHO\": \"__ECHO_WORKFLOW_ID__\",\n  \"VOX\": \"__VOX_WORKFLOW_ID__\"\n};\nconst executionOrder = Array.isArray($json.executionOrder) ? $json.executionOrder : [];\nreturn [\n  {\n    json: {\n      requestId: $json.requestId ?? 'manual',\n      prompt: $json.prompt ?? 'Resolver la tarea actual',\n      source: $json.source ?? 'workflow',\n      requestedBy: 'ARIA',\n      targetAgent: $json.tieBreakerAgent,\n      workflowId: workflowMap[$json.tieBreakerAgent],\n      executionOrder: [\n        ...executionOrder,\n        {\n          agentId: $json.tieBreakerAgent,\n          order: executionOrder.length + 1,\n          score: 0,\n        },\n      ],\n      cutoffReason: $json.tieBreakerReason ?? 'tie-breaker',\n      originalResults: Array.isArray($json.originalResults) ? $json.originalResults : [],\n      tieBreakerContext: {\n        tieBreakerAgent: $json.tieBreakerAgent,\n        tieBreakerReason: $json.tieBreakerReason ?? 'tie-breaker',\n      },\n      freeOnly: true,\n    },\n  },\n];"
+      },
+      "id": "aria-prepare-tie-break",
+      "name": "Prepare Oracle Tie Break",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1950,
+        440
+      ]
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": "={{$json.workflowId}}",
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "aria-run-tie-break-agent",
+      "name": "Run Tie Break Agent",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        2230,
+        440
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 2
+      },
+      "id": "aria-merge-tie-break",
+      "name": "Merge Oracle Tie Break",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2510,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const wrapper = items.find((item) => Array.isArray(item.json.originalResults))?.json ?? {};\nconst tieBreakerResults = items\n  .filter((item) => !Array.isArray(item.json.originalResults))\n  .map((item) => item.json);\nreturn [\n  {\n    json: {\n      ...wrapper,\n      tieBreakerResults,\n      tieBreakerUsed: tieBreakerResults.length > 0,\n    },\n  },\n];"
+      },
+      "id": "aria-combine-tie-break",
+      "name": "Combine Oracle Tie Break",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2790,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const expanded = items.flatMap((item) => {\nconst payload = item.json ?? {};\nif (Array.isArray(payload.originalResults)) {\n  const tieBreakerResults = Array.isArray(payload.tieBreakerResults) ? payload.tieBreakerResults : [];\n  return [...payload.originalResults, ...tieBreakerResults].map((result) => ({\n    ...result,\n    tieBreakerUsed: tieBreakerResults.length > 0,\n    tieBreakerReason: payload.tieBreakerReason ?? payload.cutoffReason ?? 'not-needed',\n  }));\n}\nreturn [payload];\n});\nconst results = expanded;\nconst agents = results.map((result) => result.agentId);\nconst decisionMode = agents.length <= 1 ? 'single-agent' : 'multi-agent';\nreturn [\n  {\n    json: {\n      requestId: results[0]?.requestId ?? 'manual',\n      source: results[0]?.source ?? 'manual',\n      requestedBy: results[0]?.requestedBy ?? 'USER',\n      selectedAgents: agents,\n      executionOrder: results.map((result, index) => ({\n        agentId: result.agentId,\n        order: index + 1,\n      })),\n      delegated: agents.length > 0,\n      ariaSummary: agents.length <= 1\n        ? 'ARIA aplico corte temprano y resolvio el pedido con un solo agente en Oracle AI.'\n        : 'ARIA coordino ' + agents.length + ' agente(s) en Oracle AI.',\n      decisionMode,\n      cutoffReason: results[0]?.cutoffReason ?? 'fallback',\n      tieBreakerUsed: results.some((result) => Boolean(result.tieBreakerUsed)),\n      results,\n      freeOnly: true,\n    },\n  },\n];"
       },
       "id": "aria-assemble-response",
       "name": "Assemble Oracle Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1390,
+        3070,
         260
       ]
     },
@@ -113,7 +202,7 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.4,
       "position": [
-        1660,
+        3350,
         260
       ]
     },
@@ -122,13 +211,13 @@
         "assignments": {
           "assignments": [
             {
-              "id": "resultMode-88549608",
+              "id": "resultMode-d6b0e519",
               "name": "resultMode",
               "value": "manual-preview",
               "type": "string"
             },
             {
-              "id": "summarySource-3f5d4a15",
+              "id": "summarySource-d621aa2a",
               "name": "summarySource",
               "value": "oracle-aria-preview",
               "type": "string"
@@ -142,7 +231,7 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        1920,
+        3630,
         180
       ]
     },
@@ -155,7 +244,7 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
       "position": [
-        1920,
+        3630,
         360
       ]
     }
@@ -220,6 +309,86 @@
       "main": [
         [
           {
+            "node": "Detect Oracle Tie Break",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detect Oracle Tie Break": {
+      "main": [
+        [
+          {
+            "node": "Oracle Tie Break Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Oracle Tie Break Gate": {
+      "main": [
+        [
+          {
+            "node": "Assemble Oracle Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Oracle Tie Break",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Oracle Tie Break": {
+      "main": [
+        [
+          {
+            "node": "Run Tie Break Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge Oracle Tie Break",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Tie Break Agent": {
+      "main": [
+        [
+          {
+            "node": "Merge Oracle Tie Break",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Oracle Tie Break": {
+      "main": [
+        [
+          {
+            "node": "Combine Oracle Tie Break",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine Oracle Tie Break": {
+      "main": [
+        [
+          {
             "node": "Assemble Oracle Response",
             "type": "main",
             "index": 0
@@ -268,5 +437,5 @@
     "oracleAiWorkflow": true
   },
   "active": true,
-  "description": "ARIA coordina hasta 3 agentes Oracle AI dentro de n8n, decide orden, aplica corte temprano y usa solo nodos gratis."
+  "description": "ARIA coordina hasta 3 agentes Oracle AI dentro de n8n, decide orden, aplica corte temprano, fuerza desempate cuando hace falta y usa solo nodos gratis."
 }

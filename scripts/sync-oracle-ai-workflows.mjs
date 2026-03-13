@@ -151,6 +151,20 @@ function switchNode(id, position, name, outputExpression, numberOutputs = 2) {
   };
 }
 
+function mergeNode(id, position, name, numberInputs = 2) {
+  return {
+    parameters: {
+      mode: 'append',
+      numberInputs,
+    },
+    id,
+    name,
+    type: 'n8n-nodes-base.merge',
+    typeVersion: 3.2,
+    position,
+  };
+}
+
 function executeWorkflowNode(id, position, name, workflowIdExpression) {
   return {
     parameters: {
@@ -257,6 +271,9 @@ return [
       prompt,
       requestedBy: String(payload.requestedBy ?? 'ARIA'),
       source: payload.source ?? ($json.body ? 'webhook' : 'workflow'),
+      cutoffReason: payload.cutoffReason ?? 'not-needed',
+      executionOrder: payload.executionOrder ?? [],
+      tieBreakerContext: payload.tieBreakerContext ?? null,
       freeOnly: true,
     },
   },
@@ -286,6 +303,9 @@ return {
       'Cerrar con sintesis desde ARIA',
     ],
     latencyMs: 900,
+    cutoffReason: $json.cutoffReason ?? 'not-needed',
+    executionOrder: $json.executionOrder ?? [],
+    tieBreakerContext: $json.tieBreakerContext ?? null,
   },
 };`,
       'runOnceForEachItem'
@@ -433,6 +453,7 @@ return [
         order: index + 1,
         score: scoreMap.get(agentId) ?? 0,
       })),
+      reserveAgents: rankedAgents.slice(maxAgents, 3),
       maxAgents,
       cutoffReason,
       earlyStopEligible: maxAgents === 1,
@@ -459,6 +480,7 @@ return targetAgents.map((agentId, index) => ({
     workflowId: workflowMap[agentId],
     agentIndex: index + 1,
     executionOrder: source.executionOrder ?? [],
+    reserveAgents: source.reserveAgents ?? [],
     maxAgents: source.maxAgents ?? targetAgents.length,
     cutoffReason: source.cutoffReason ?? 'fallback',
     earlyStopEligible: source.earlyStopEligible ?? false,
@@ -474,10 +496,125 @@ return targetAgents.map((agentId, index) => ({
       '={{$json.workflowId}}'
     ),
     codeNode(
-      'aria-assemble-response',
+      'aria-detect-tie-break',
       [1390, 260],
-      'Assemble Oracle Response',
+      'Detect Oracle Tie Break',
       `const results = items.map((item) => item.json);
+const reserveAgents = Array.isArray(results[0]?.reserveAgents) ? results[0].reserveAgents : [];
+const lowerPrompt = String(results[0]?.prompt ?? '').toLowerCase();
+const familyMap = {
+  SCOUT: 'discovery',
+  VERA: 'discovery',
+  APEX: 'build',
+  FORGE: 'build',
+  ZION: 'strategy',
+  ECHO: 'message',
+  VOX: 'message',
+};
+const families = [...new Set(results.map((result) => familyMap[result.agentId] ?? 'general'))];
+const conflictSignals = /(versus| vs |compar|elegir|tradeoff|conflict|contradic|priorizar|balance|decision|primero)/.test(lowerPrompt);
+const tieBreakerAgent = reserveAgents[0] ?? null;
+const tieBreakerRequired = Boolean(tieBreakerAgent) && results.length === 2 && (conflictSignals || families.length > 1);
+return [
+  {
+    json: {
+      ...results[0],
+      originalResults: results,
+      tieBreakerRequired,
+      tieBreakerAgent,
+      tieBreakerReason: tieBreakerRequired
+        ? (conflictSignals ? 'prompt-signals-conflict' : 'cross-discipline-conflict')
+        : 'not-needed',
+    },
+  },
+];`
+    ),
+    switchNode(
+      'aria-tie-break-gate',
+      [1670, 260],
+      'Oracle Tie Break Gate',
+      "={{$json.tieBreakerRequired ? 1 : 0}}"
+    ),
+    codeNode(
+      'aria-prepare-tie-break',
+      [1950, 440],
+      'Prepare Oracle Tie Break',
+      `const workflowMap = ${workflowMapLiteral};
+const executionOrder = Array.isArray($json.executionOrder) ? $json.executionOrder : [];
+return [
+  {
+    json: {
+      requestId: $json.requestId ?? 'manual',
+      prompt: $json.prompt ?? 'Resolver la tarea actual',
+      source: $json.source ?? 'workflow',
+      requestedBy: 'ARIA',
+      targetAgent: $json.tieBreakerAgent,
+      workflowId: workflowMap[$json.tieBreakerAgent],
+      executionOrder: [
+        ...executionOrder,
+        {
+          agentId: $json.tieBreakerAgent,
+          order: executionOrder.length + 1,
+          score: 0,
+        },
+      ],
+      cutoffReason: $json.tieBreakerReason ?? 'tie-breaker',
+      originalResults: Array.isArray($json.originalResults) ? $json.originalResults : [],
+      tieBreakerContext: {
+        tieBreakerAgent: $json.tieBreakerAgent,
+        tieBreakerReason: $json.tieBreakerReason ?? 'tie-breaker',
+      },
+      freeOnly: true,
+    },
+  },
+];`
+    ),
+    executeWorkflowNode(
+      'aria-run-tie-break-agent',
+      [2230, 440],
+      'Run Tie Break Agent',
+      '={{$json.workflowId}}'
+    ),
+    mergeNode(
+      'aria-merge-tie-break',
+      [2510, 360],
+      'Merge Oracle Tie Break'
+    ),
+    codeNode(
+      'aria-combine-tie-break',
+      [2790, 360],
+      'Combine Oracle Tie Break',
+      `const wrapper = items.find((item) => Array.isArray(item.json.originalResults))?.json ?? {};
+const tieBreakerResults = items
+  .filter((item) => !Array.isArray(item.json.originalResults))
+  .map((item) => item.json);
+return [
+  {
+    json: {
+      ...wrapper,
+      tieBreakerResults,
+      tieBreakerUsed: tieBreakerResults.length > 0,
+    },
+  },
+];`
+    ),
+    codeNode(
+      'aria-assemble-response',
+      [3070, 260],
+      'Assemble Oracle Response',
+      `const expanded = items.flatMap((item) => {
+const payload = item.json ?? {};
+if (Array.isArray(payload.originalResults)) {
+  const tieBreakerResults = Array.isArray(payload.tieBreakerResults) ? payload.tieBreakerResults : [];
+  return [...payload.originalResults, ...tieBreakerResults].map((result) => ({
+    ...result,
+    tieBreakerUsed: tieBreakerResults.length > 0,
+    tieBreakerReason: payload.tieBreakerReason ?? payload.cutoffReason ?? 'not-needed',
+  }));
+}
+return [payload];
+});
+const results = expanded;
 const agents = results.map((result) => result.agentId);
 const decisionMode = agents.length <= 1 ? 'single-agent' : 'multi-agent';
 return [
@@ -497,6 +634,7 @@ return [
         : 'ARIA coordino ' + agents.length + ' agente(s) en Oracle AI.',
       decisionMode,
       cutoffReason: results[0]?.cutoffReason ?? 'fallback',
+      tieBreakerUsed: results.some((result) => Boolean(result.tieBreakerUsed)),
       results,
       freeOnly: true,
     },
@@ -505,15 +643,15 @@ return [
     ),
     switchNode(
       'aria-return-mode',
-      [1660, 260],
+      [3350, 260],
       'Return Mode',
       "={{$json.source === 'webhook' ? 1 : 0}}"
     ),
-    setAssignments('aria-preview-result', [1920, 180], 'Preview Result', [
+    setAssignments('aria-preview-result', [3630, 180], 'Preview Result', [
       assignment('resultMode', 'manual-preview'),
       assignment('summarySource', 'oracle-aria-preview'),
     ]),
-    respondToWebhook('aria-respond', [1920, 360], 'Respond to Webhook'),
+    respondToWebhook('aria-respond', [3630, 360], 'Respond to Webhook'),
   ];
 
   const connections = {
@@ -533,6 +671,30 @@ return [
       main: [[{ node: 'Run Agent Workflow', type: 'main', index: 0 }]],
     },
     'Run Agent Workflow': {
+      main: [[{ node: 'Detect Oracle Tie Break', type: 'main', index: 0 }]],
+    },
+    'Detect Oracle Tie Break': {
+      main: [[{ node: 'Oracle Tie Break Gate', type: 'main', index: 0 }]],
+    },
+    'Oracle Tie Break Gate': {
+      main: [
+        [{ node: 'Assemble Oracle Response', type: 'main', index: 0 }],
+        [{ node: 'Prepare Oracle Tie Break', type: 'main', index: 0 }],
+      ],
+    },
+    'Prepare Oracle Tie Break': {
+      main: [
+        [{ node: 'Run Tie Break Agent', type: 'main', index: 0 }],
+        [{ node: 'Merge Oracle Tie Break', type: 'main', index: 0 }],
+      ],
+    },
+    'Run Tie Break Agent': {
+      main: [[{ node: 'Merge Oracle Tie Break', type: 'main', index: 1 }]],
+    },
+    'Merge Oracle Tie Break': {
+      main: [[{ node: 'Combine Oracle Tie Break', type: 'main', index: 0 }]],
+    },
+    'Combine Oracle Tie Break': {
       main: [[{ node: 'Assemble Oracle Response', type: 'main', index: 0 }]],
     },
     'Assemble Oracle Response': {
@@ -550,7 +712,7 @@ return [
     'Oracle AI - ARIA Router',
     nodes,
     connections,
-    'ARIA coordina hasta 3 agentes Oracle AI dentro de n8n, decide orden, aplica corte temprano y usa solo nodos gratis.',
+    'ARIA coordina hasta 3 agentes Oracle AI dentro de n8n, decide orden, aplica corte temprano, fuerza desempate cuando hace falta y usa solo nodos gratis.',
     true
   );
 }

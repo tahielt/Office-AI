@@ -44,7 +44,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const input = items[0]?.json ?? {};\nconst payload = input.body && typeof input.body === 'object' ? input.body : input;\nconst prompt = [payload.prompt, payload.task, payload.message, payload.text]\n  .find((value) => typeof value === 'string' && value.trim()) ?? 'Analizar la tarea actual de Office AI';\nconst requested = String(prompt).toLowerCase();\nconst mentionMap = {\n  scout: 'SCOUT',\n  apex: 'APEX',\n  zion: 'ZION',\n  forge: 'FORGE',\n  echo: 'ECHO',\n  vera: 'VERA',\n  vox: 'VOX',\n};\nconst scoreMap = new Map();\nfor (const agent of Object.values(mentionMap)) scoreMap.set(agent, 0);\nconst mentionedAgents = [];\nfor (const [token, agent] of Object.entries(mentionMap)) {\n  if (requested.includes(token)) {\n    mentionedAgents.push(agent);\n    scoreMap.set(agent, (scoreMap.get(agent) ?? 0) + 120);\n  }\n}\nconst weightedSignals = [\n  ['SCOUT', /(investig|compet|mercado|tendencia|web|noticia|research)/, 90],\n  ['APEX', /(repo|backend|codigo|arquitect|bug|infra|api|frontend)/, 85],\n  ['ZION', /(estrateg|growth|negocio|roadmap|plan|prioridad)/, 80],\n  ['FORGE', /(workflow|automat|n8n|deploy|implement|integraci)/, 80],\n  ['VERA', /(riesgo|metrica|analisis|dashboard|dato)/, 72],\n  ['ECHO', /(mensaje|copy|mail|respuesta|comunic)/, 68],\n  ['VOX', /(contenido|post|reel|linkedin|instagram|youtube|tiktok)/, 68],\n];\nfor (const [agent, pattern, weight] of weightedSignals) {\n  if (pattern.test(requested)) {\n    scoreMap.set(agent, (scoreMap.get(agent) ?? 0) + weight);\n  }\n}\nconst rankedAgents = [...scoreMap.entries()]\n  .filter(([, score]) => score > 0)\n  .sort((left, right) => right[1] - left[1])\n  .map(([agent]) => agent);\nconst complexityScore =\n  prompt.length +\n  rankedAgents.length * 35 +\n  (/profundo|deep|completo|detallado/.test(requested) ? 80 : 0);\nconst responseMode = complexityScore >= 160 ? 'deep' : 'rapid';\nconst topScore = scoreMap.get(rankedAgents[0] ?? 'SCOUT') ?? 0;\nconst secondScore = scoreMap.get(rankedAgents[1] ?? '') ?? 0;\nconst maxLeads = mentionedAgents.length === 1\n  ? 1\n  : topScore >= 110 && secondScore < 55\n    ? 1\n    : responseMode === 'rapid'\n      ? 2\n      : 3;\nconst leadAgents = (rankedAgents.length ? rankedAgents : ['SCOUT']).slice(0, maxLeads);\nconst cutoffReason = maxLeads === 1\n  ? (mentionedAgents.length === 1 ? 'explicit-single-lead' : 'single-high-confidence-lead')\n  : responseMode === 'rapid'\n    ? 'rapid-lane-cap'\n    : 'deep-multi-lead';\nreturn [\n  {\n    json: {\n      requestId: payload.requestId ?? 'req-' + Date.now(),\n      task: prompt,\n      leadAgents: leadAgents.length ? leadAgents : ['SCOUT'],\n      decisionOrder: leadAgents.map((agent, index) => ({\n        agent,\n        order: index + 1,\n        score: scoreMap.get(agent) ?? 0,\n      })),\n      source: payload.source ?? 'webhook',\n      freeOnly: true,\n      complexityScore,\n      responseMode,\n      earlyStopEligible: maxLeads === 1,\n      cutoffReason,\n      maxLeads,\n      maxLatencyMs: responseMode === 'rapid' ? 2500 : 4500,\n    },\n  },\n];"
+        "jsCode": "const input = items[0]?.json ?? {};\nconst payload = input.body && typeof input.body === 'object' ? input.body : input;\nconst prompt = [payload.prompt, payload.task, payload.message, payload.text]\n  .find((value) => typeof value === 'string' && value.trim()) ?? 'Analizar la tarea actual de Office AI';\nconst requested = String(prompt).toLowerCase();\nconst mentionMap = {\n  scout: 'SCOUT',\n  apex: 'APEX',\n  zion: 'ZION',\n  forge: 'FORGE',\n  echo: 'ECHO',\n  vera: 'VERA',\n  vox: 'VOX',\n};\nconst scoreMap = new Map();\nfor (const agent of Object.values(mentionMap)) scoreMap.set(agent, 0);\nconst mentionedAgents = [];\nfor (const [token, agent] of Object.entries(mentionMap)) {\n  if (requested.includes(token)) {\n    mentionedAgents.push(agent);\n    scoreMap.set(agent, (scoreMap.get(agent) ?? 0) + 120);\n  }\n}\nconst weightedSignals = [\n  ['SCOUT', /(investig|compet|mercado|tendencia|web|noticia|research)/, 90],\n  ['APEX', /(repo|backend|codigo|arquitect|bug|infra|api|frontend)/, 85],\n  ['ZION', /(estrateg|growth|negocio|roadmap|plan|prioridad)/, 80],\n  ['FORGE', /(workflow|automat|n8n|deploy|implement|integraci)/, 80],\n  ['VERA', /(riesgo|metrica|analisis|dashboard|dato)/, 72],\n  ['ECHO', /(mensaje|copy|mail|respuesta|comunic)/, 68],\n  ['VOX', /(contenido|post|reel|linkedin|instagram|youtube|tiktok)/, 68],\n];\nfor (const [agent, pattern, weight] of weightedSignals) {\n  if (pattern.test(requested)) {\n    scoreMap.set(agent, (scoreMap.get(agent) ?? 0) + weight);\n  }\n}\nconst rankedAgents = [...scoreMap.entries()]\n  .filter(([, score]) => score > 0)\n  .sort((left, right) => right[1] - left[1])\n  .map(([agent]) => agent);\nconst complexityScore =\n  prompt.length +\n  rankedAgents.length * 35 +\n  (/profundo|deep|completo|detallado/.test(requested) ? 80 : 0);\nconst responseMode = complexityScore >= 160 ? 'deep' : 'rapid';\nconst topScore = scoreMap.get(rankedAgents[0] ?? 'SCOUT') ?? 0;\nconst secondScore = scoreMap.get(rankedAgents[1] ?? '') ?? 0;\nconst maxLeads = mentionedAgents.length === 1\n  ? 1\n  : topScore >= 110 && secondScore < 55\n    ? 1\n    : responseMode === 'rapid'\n      ? 2\n      : 3;\nconst leadAgents = (rankedAgents.length ? rankedAgents : ['SCOUT']).slice(0, maxLeads);\nconst cutoffReason = maxLeads === 1\n  ? (mentionedAgents.length === 1 ? 'explicit-single-lead' : 'single-high-confidence-lead')\n  : responseMode === 'rapid'\n    ? 'rapid-lane-cap'\n    : 'deep-multi-lead';\nreturn [\n  {\n    json: {\n      requestId: payload.requestId ?? 'req-' + Date.now(),\n      task: prompt,\n      leadAgents: leadAgents.length ? leadAgents : ['SCOUT'],\n      decisionOrder: leadAgents.map((agent, index) => ({\n        agent,\n        order: index + 1,\n        score: scoreMap.get(agent) ?? 0,\n      })),\n      reserveLeadPool: rankedAgents.slice(maxLeads, 3),\n      source: payload.source ?? 'webhook',\n      freeOnly: true,\n      complexityScore,\n      responseMode,\n      earlyStopEligible: maxLeads === 1,\n      cutoffReason,\n      maxLeads,\n      maxLatencyMs: responseMode === 'rapid' ? 2500 : 4500,\n    },\n  },\n];"
       },
       "id": "normalize-intake",
       "name": "Normalize Intake",
@@ -75,19 +75,19 @@
         "assignments": {
           "assignments": [
             {
-              "id": "lane-ddcd8815",
+              "id": "lane-23ef4f5d",
               "name": "lane",
               "value": "rapid",
               "type": "string"
             },
             {
-              "id": "targetLatencyMs-8b843bd9",
+              "id": "targetLatencyMs-1eed4d0f",
               "name": "targetLatencyMs",
               "value": 2500,
               "type": "number"
             },
             {
-              "id": "handoffPlan-8106e917",
+              "id": "handoffPlan-7ca286ed",
               "name": "handoffPlan",
               "value": "brief-builder -> specialist-runner -> compact-assembler",
               "type": "string"
@@ -110,19 +110,19 @@
         "assignments": {
           "assignments": [
             {
-              "id": "lane-face48b8",
+              "id": "lane-2a0063c3",
               "name": "lane",
               "value": "deep",
               "type": "string"
             },
             {
-              "id": "targetLatencyMs-1fc0c017",
+              "id": "targetLatencyMs-356f301b",
               "name": "targetLatencyMs",
               "value": 4500,
               "type": "number"
             },
             {
-              "id": "handoffPlan-c084f259",
+              "id": "handoffPlan-95fec448",
               "name": "handoffPlan",
               "value": "brief-builder -> specialist-runner -> full-assembler",
               "type": "string"
@@ -178,6 +178,113 @@
     },
     {
       "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const leadResults = items.map((item) => item.json);\nconst reserveLeadPool = Array.isArray(leadResults[0]?.reserveLeadPool) ? leadResults[0].reserveLeadPool : [];\nconst lowerTask = String(leadResults[0]?.task ?? '').toLowerCase();\nconst familyMap = {\n  SCOUT: 'discovery',\n  VERA: 'discovery',\n  APEX: 'build',\n  FORGE: 'build',\n  ZION: 'strategy',\n  ECHO: 'message',\n  VOX: 'message',\n};\nconst families = [...new Set(leadResults.map((result) => familyMap[result.lead] ?? 'general'))];\nconst conflictSignals = /(versus| vs |compar|elegir|tradeoff|conflict|contradic|priorizar|balance|decision|primero)/.test(lowerTask);\nconst tieBreakerLead = reserveLeadPool[0] ?? null;\nconst tieBreakerRequired = Boolean(tieBreakerLead) && leadResults.length === 2 && (conflictSignals || families.length > 1);\nreturn [\n  {\n    json: {\n      ...leadResults[0],\n      originalLeadResults: leadResults,\n      tieBreakerRequired,\n      tieBreakerLead,\n      tieBreakerReason: tieBreakerRequired\n        ? (conflictSignals ? 'prompt-signals-conflict' : 'cross-discipline-conflict')\n        : 'not-needed',\n    },\n  },\n];"
+      },
+      "id": "detect-tie-break",
+      "name": "Detect Tie Break",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2180,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{$json.tieBreakerRequired ? 1 : 0}}"
+      },
+      "id": "tie-break-gate",
+      "name": "Tie Break Gate",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        2440,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const leadResults = Array.isArray($json.originalLeadResults) ? $json.originalLeadResults : [];\nconst existingOrder = Array.isArray($json.decisionOrder) ? $json.decisionOrder : [];\nreturn [\n  {\n    json: {\n      requestId: $json.requestId ?? 'manual',\n      task: leadResults[0]?.task ?? $json.task ?? 'Resolver la tarea actual',\n      leadAgents: [$json.tieBreakerLead],\n      source: $json.source ?? 'workflow',\n      responseMode: $json.responseMode ?? 'rapid',\n      lane: $json.lane ?? 'rapid',\n      reserveLeadPool: [],\n      decisionOrder: [\n        ...existingOrder,\n        {\n          agent: $json.tieBreakerLead,\n          order: existingOrder.length + 1,\n          score: 0,\n        },\n      ],\n      cutoffReason: $json.tieBreakerReason ?? 'tie-breaker',\n      originalLeadResults: leadResults,\n      tieBreakerLead: $json.tieBreakerLead,\n      tieBreakerReason: $json.tieBreakerReason ?? 'tie-breaker',\n      freeOnly: true,\n    },\n  },\n];"
+      },
+      "id": "prepare-tie-break-request",
+      "name": "Prepare Tie Break Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2720,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": "__LEAD_BRIEF_BUILDER_ID__",
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "run-lead-brief-builder-tie-break",
+      "name": "Run Lead Brief Builder Tie Break",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        3000,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": "__SPECIALIST_RUNNER_ID__",
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "run-specialist-runner-tie-break",
+      "name": "Run Specialist Runner Tie Break",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        3280,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 2
+      },
+      "id": "merge-tie-break-results",
+      "name": "Merge Tie Break Results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        3560,
+        440
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const wrapper = items.find((item) => Array.isArray(item.json.originalLeadResults))?.json ?? {};\nconst tieBreakerResults = items\n  .filter((item) => !Array.isArray(item.json.originalLeadResults))\n  .map((item) => item.json);\nreturn [\n  {\n    json: {\n      ...wrapper,\n      tieBreakerResults,\n      tieBreakerUsed: tieBreakerResults.length > 0,\n    },\n  },\n];"
+      },
+      "id": "combine-tie-break-results",
+      "name": "Combine Tie Break Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3840,
+        440
+      ]
+    },
+    {
+      "parameters": {
         "source": "database",
         "workflowId": "__RESPONSE_ASSEMBLER_ID__",
         "mode": "once",
@@ -190,7 +297,7 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.3,
       "position": [
-        2180,
+        4120,
         340
       ]
     },
@@ -205,7 +312,7 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.4,
       "position": [
-        2460,
+        4400,
         340
       ]
     },
@@ -214,13 +321,13 @@
         "assignments": {
           "assignments": [
             {
-              "id": "resultMode-72b621c7",
+              "id": "resultMode-7854a69b",
               "name": "resultMode",
               "value": "manual-preview",
               "type": "string"
             },
             {
-              "id": "summarySource-4f0f40de",
+              "id": "summarySource-c86d5475",
               "name": "summarySource",
               "value": "n8n-office-router",
               "type": "string"
@@ -234,7 +341,7 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        2740,
+        4680,
         240
       ]
     },
@@ -247,7 +354,7 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
       "position": [
-        2740,
+        4680,
         440
       ]
     }
@@ -352,6 +459,97 @@
       "main": [
         [
           {
+            "node": "Detect Tie Break",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detect Tie Break": {
+      "main": [
+        [
+          {
+            "node": "Tie Break Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tie Break Gate": {
+      "main": [
+        [
+          {
+            "node": "Run Response Assembler",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Tie Break Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Tie Break Request": {
+      "main": [
+        [
+          {
+            "node": "Run Lead Brief Builder Tie Break",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge Tie Break Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Lead Brief Builder Tie Break": {
+      "main": [
+        [
+          {
+            "node": "Run Specialist Runner Tie Break",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Specialist Runner Tie Break": {
+      "main": [
+        [
+          {
+            "node": "Merge Tie Break Results",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Tie Break Results": {
+      "main": [
+        [
+          {
+            "node": "Combine Tie Break Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine Tie Break Results": {
+      "main": [
+        [
+          {
             "node": "Run Response Assembler",
             "type": "main",
             "index": 0
@@ -399,5 +597,5 @@
     "officeAiFreeOnly": true
   },
   "active": false,
-  "description": "Router gratuito con webhook y modo manual que decide orden, tope 1/2/3 leads y corte temprano antes de llamar a los subworkflows de Office AI."
+  "description": "Router gratuito con webhook y modo manual que decide orden, tope 1/2/3 leads, corte temprano y desempate antes de llamar a los subworkflows de Office AI."
 }

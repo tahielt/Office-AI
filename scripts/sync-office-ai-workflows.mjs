@@ -141,6 +141,20 @@ function switchNode(id, position, name, outputExpression, numberOutputs = 2) {
   };
 }
 
+function mergeNode(id, position, name, numberInputs = 2) {
+  return {
+    parameters: {
+      mode: 'append',
+      numberInputs,
+    },
+    id,
+    name,
+    type: 'n8n-nodes-base.merge',
+    typeVersion: 3.2,
+    position,
+  };
+}
+
 function workflowBase(name, nodes, connections, description) {
   return {
     name,
@@ -254,6 +268,7 @@ return [
         order: index + 1,
         score: scoreMap.get(agent) ?? 0,
       })),
+      reserveLeadPool: rankedAgents.slice(maxLeads, 3),
       source: payload.source ?? 'webhook',
       freeOnly: true,
       complexityScore,
@@ -294,23 +309,131 @@ return [
       'Run Specialist Runner',
       '__SPECIALIST_RUNNER_ID__'
     ),
+    codeNode(
+      'detect-tie-break',
+      [2180, 340],
+      'Detect Tie Break',
+      `const leadResults = items.map((item) => item.json);
+const reserveLeadPool = Array.isArray(leadResults[0]?.reserveLeadPool) ? leadResults[0].reserveLeadPool : [];
+const lowerTask = String(leadResults[0]?.task ?? '').toLowerCase();
+const familyMap = {
+  SCOUT: 'discovery',
+  VERA: 'discovery',
+  APEX: 'build',
+  FORGE: 'build',
+  ZION: 'strategy',
+  ECHO: 'message',
+  VOX: 'message',
+};
+const families = [...new Set(leadResults.map((result) => familyMap[result.lead] ?? 'general'))];
+const conflictSignals = /(versus| vs |compar|elegir|tradeoff|conflict|contradic|priorizar|balance|decision|primero)/.test(lowerTask);
+const tieBreakerLead = reserveLeadPool[0] ?? null;
+const tieBreakerRequired = Boolean(tieBreakerLead) && leadResults.length === 2 && (conflictSignals || families.length > 1);
+return [
+  {
+    json: {
+      ...leadResults[0],
+      originalLeadResults: leadResults,
+      tieBreakerRequired,
+      tieBreakerLead,
+      tieBreakerReason: tieBreakerRequired
+        ? (conflictSignals ? 'prompt-signals-conflict' : 'cross-discipline-conflict')
+        : 'not-needed',
+    },
+  },
+];`
+    ),
+    switchNode(
+      'tie-break-gate',
+      [2440, 340],
+      'Tie Break Gate',
+      "={{$json.tieBreakerRequired ? 1 : 0}}"
+    ),
+    codeNode(
+      'prepare-tie-break-request',
+      [2720, 520],
+      'Prepare Tie Break Request',
+      `const leadResults = Array.isArray($json.originalLeadResults) ? $json.originalLeadResults : [];
+const existingOrder = Array.isArray($json.decisionOrder) ? $json.decisionOrder : [];
+return [
+  {
+    json: {
+      requestId: $json.requestId ?? 'manual',
+      task: leadResults[0]?.task ?? $json.task ?? 'Resolver la tarea actual',
+      leadAgents: [$json.tieBreakerLead],
+      source: $json.source ?? 'workflow',
+      responseMode: $json.responseMode ?? 'rapid',
+      lane: $json.lane ?? 'rapid',
+      reserveLeadPool: [],
+      decisionOrder: [
+        ...existingOrder,
+        {
+          agent: $json.tieBreakerLead,
+          order: existingOrder.length + 1,
+          score: 0,
+        },
+      ],
+      cutoffReason: $json.tieBreakerReason ?? 'tie-breaker',
+      originalLeadResults: leadResults,
+      tieBreakerLead: $json.tieBreakerLead,
+      tieBreakerReason: $json.tieBreakerReason ?? 'tie-breaker',
+      freeOnly: true,
+    },
+  },
+];`
+    ),
+    executeWorkflowNode(
+      'run-lead-brief-builder-tie-break',
+      [3000, 520],
+      'Run Lead Brief Builder Tie Break',
+      '__LEAD_BRIEF_BUILDER_ID__'
+    ),
+    executeWorkflowNode(
+      'run-specialist-runner-tie-break',
+      [3280, 520],
+      'Run Specialist Runner Tie Break',
+      '__SPECIALIST_RUNNER_ID__'
+    ),
+    mergeNode(
+      'merge-tie-break-results',
+      [3560, 440],
+      'Merge Tie Break Results'
+    ),
+    codeNode(
+      'combine-tie-break-results',
+      [3840, 440],
+      'Combine Tie Break Results',
+      `const wrapper = items.find((item) => Array.isArray(item.json.originalLeadResults))?.json ?? {};
+const tieBreakerResults = items
+  .filter((item) => !Array.isArray(item.json.originalLeadResults))
+  .map((item) => item.json);
+return [
+  {
+    json: {
+      ...wrapper,
+      tieBreakerResults,
+      tieBreakerUsed: tieBreakerResults.length > 0,
+    },
+  },
+];`
+    ),
     executeWorkflowNode(
       'run-response-assembler',
-      [2180, 340],
+      [4120, 340],
       'Run Response Assembler',
       '__RESPONSE_ASSEMBLER_ID__'
     ),
     switchNode(
       'return-mode',
-      [2460, 340],
+      [4400, 340],
       'Return Mode',
       "={{$json.source === 'webhook' ? 1 : 0}}"
     ),
-    setAssignments('preview-result', [2740, 240], 'Preview Result', [
+    setAssignments('preview-result', [4680, 240], 'Preview Result', [
       assignment('resultMode', 'manual-preview'),
       assignment('summarySource', 'n8n-office-router'),
     ]),
-    respondToWebhook('respond-intake', [2740, 440]),
+    respondToWebhook('respond-intake', [4680, 440]),
   ];
 
   const connections = {
@@ -342,6 +465,33 @@ return [
       main: [[{ node: 'Run Specialist Runner', type: 'main', index: 0 }]],
     },
     'Run Specialist Runner': {
+      main: [[{ node: 'Detect Tie Break', type: 'main', index: 0 }]],
+    },
+    'Detect Tie Break': {
+      main: [[{ node: 'Tie Break Gate', type: 'main', index: 0 }]],
+    },
+    'Tie Break Gate': {
+      main: [
+        [{ node: 'Run Response Assembler', type: 'main', index: 0 }],
+        [{ node: 'Prepare Tie Break Request', type: 'main', index: 0 }],
+      ],
+    },
+    'Prepare Tie Break Request': {
+      main: [
+        [{ node: 'Run Lead Brief Builder Tie Break', type: 'main', index: 0 }],
+        [{ node: 'Merge Tie Break Results', type: 'main', index: 0 }],
+      ],
+    },
+    'Run Lead Brief Builder Tie Break': {
+      main: [[{ node: 'Run Specialist Runner Tie Break', type: 'main', index: 0 }]],
+    },
+    'Run Specialist Runner Tie Break': {
+      main: [[{ node: 'Merge Tie Break Results', type: 'main', index: 1 }]],
+    },
+    'Merge Tie Break Results': {
+      main: [[{ node: 'Combine Tie Break Results', type: 'main', index: 0 }]],
+    },
+    'Combine Tie Break Results': {
       main: [[{ node: 'Run Response Assembler', type: 'main', index: 0 }]],
     },
     'Run Response Assembler': {
@@ -359,7 +509,7 @@ return [
     'Office AI - Intake Router',
     nodes,
     connections,
-    'Router gratuito con webhook y modo manual que decide orden, tope 1/2/3 leads y corte temprano antes de llamar a los subworkflows de Office AI.'
+    'Router gratuito con webhook y modo manual que decide orden, tope 1/2/3 leads, corte temprano y desempate antes de llamar a los subworkflows de Office AI.'
   );
 }
 
@@ -560,6 +710,10 @@ for (const item of items) {
         source: source.source ?? 'manual',
         responseMode: source.responseMode ?? 'rapid',
         lane: source.lane ?? 'rapid',
+        reserveLeadPool: source.reserveLeadPool ?? [],
+        decisionOrder: source.decisionOrder ?? [],
+        cutoffReason: source.cutoffReason ?? 'fallback',
+        earlyStopEligible: source.earlyStopEligible ?? false,
         finding: \`\${specialist} encontro una oportunidad concreta para \${source.lead}\`,
         risk: \`\${specialist} marco una dependencia a vigilar\`,
         nextStep: \`\${specialist} propone ejecutar una accion corta y medible\`,
@@ -584,6 +738,10 @@ for (const item of items) {
       source: item.json.source ?? 'manual',
       responseMode: item.json.responseMode ?? 'rapid',
       lane: item.json.lane ?? 'rapid',
+      reserveLeadPool: item.json.reserveLeadPool ?? [],
+      decisionOrder: item.json.decisionOrder ?? [],
+      cutoffReason: item.json.cutoffReason ?? 'fallback',
+      earlyStopEligible: item.json.earlyStopEligible ?? false,
       findings: [],
       risks: [],
       nextSteps: [],
@@ -672,20 +830,48 @@ function buildResponseAssembler() {
       'normalize-results',
       [780, 300],
       'Normalize Results',
-      `return items.map((item) => ({
+      `const expandedResults = items.flatMap((item) => {
+  const payload = item.json ?? {};
+  if (Array.isArray(payload.originalLeadResults)) {
+    const tieBreakerResults = Array.isArray(payload.tieBreakerResults) ? payload.tieBreakerResults : [];
+    return [...payload.originalLeadResults, ...tieBreakerResults].map((result) => ({
+      json: {
+        requestId: result.requestId ?? payload.requestId ?? 'manual',
+        lead: result.lead ?? 'SCOUT',
+        source: result.source ?? payload.source ?? 'manual',
+        responseMode: result.responseMode ?? payload.responseMode ?? 'rapid',
+        lane: result.lane ?? payload.lane ?? 'rapid',
+        findings: Array.isArray(result.findings) ? result.findings : [],
+        risks: Array.isArray(result.risks) ? result.risks : [],
+        nextSteps: Array.isArray(result.nextSteps) ? result.nextSteps : [],
+        latencyMs: Number(result.latencyMs ?? 0),
+        tieBreakerUsed: tieBreakerResults.length > 0,
+        tieBreakerReason: payload.tieBreakerReason ?? payload.cutoffReason ?? 'not-needed',
+        decisionOrder: payload.decisionOrder ?? result.decisionOrder ?? [],
+        freeOnly: true,
+      },
+    }));
+  }
+
+  return [{
     json: {
-      requestId: item.json.requestId ?? 'manual',
-      lead: item.json.lead ?? 'SCOUT',
-      source: item.json.source ?? 'manual',
-      responseMode: item.json.responseMode ?? 'rapid',
-      lane: item.json.lane ?? 'rapid',
-      findings: Array.isArray(item.json.findings) ? item.json.findings : [],
-      risks: Array.isArray(item.json.risks) ? item.json.risks : [],
-      nextSteps: Array.isArray(item.json.nextSteps) ? item.json.nextSteps : [],
-    latencyMs: Number(item.json.latencyMs ?? 0),
-    freeOnly: true,
-  },
-}));`
+      requestId: payload.requestId ?? 'manual',
+      lead: payload.lead ?? 'SCOUT',
+      source: payload.source ?? 'manual',
+      responseMode: payload.responseMode ?? 'rapid',
+      lane: payload.lane ?? 'rapid',
+      findings: Array.isArray(payload.findings) ? payload.findings : [],
+      risks: Array.isArray(payload.risks) ? payload.risks : [],
+      nextSteps: Array.isArray(payload.nextSteps) ? payload.nextSteps : [],
+      latencyMs: Number(payload.latencyMs ?? 0),
+      tieBreakerUsed: Boolean(payload.tieBreakerUsed),
+      tieBreakerReason: payload.tieBreakerReason ?? payload.cutoffReason ?? 'not-needed',
+      decisionOrder: payload.decisionOrder ?? [],
+      freeOnly: true,
+    },
+  }];
+});
+return expandedResults;`
     ),
     codeNode(
       'deduplicate-findings',
@@ -730,6 +916,9 @@ return [
       risks,
       nextSteps,
       latencyMs,
+      tieBreakerUsed: leadResults.some((result) => Boolean(result.tieBreakerUsed)),
+      tieBreakerReason: leadResults.find((result) => result.tieBreakerReason)?.tieBreakerReason ?? 'not-needed',
+      decisionOrder: leadResults.find((result) => Array.isArray(result.decisionOrder) && result.decisionOrder.length)?.decisionOrder ?? [],
       freeOnly: true,
     },
   },
@@ -753,6 +942,9 @@ return [
         ? 'ARIA aplico corte temprano porque un solo lead alcanzo para resolver el pedido.'
         : \`ARIA cerro \${fronts} frente(s) de trabajo con salida gratis y orquestada\`,
       decisionMode,
+      tieBreakerUsed: Boolean(data.tieBreakerUsed),
+      tieBreakerReason: data.tieBreakerReason ?? 'not-needed',
+      decisionOrder: data.decisionOrder ?? [],
       steps: data.nextSteps ?? [],
       findings: data.findings ?? [],
       risks: data.risks ?? [],

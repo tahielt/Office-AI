@@ -58,7 +58,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const payload = $json.body && typeof $json.body === 'object' ? $json.body : $json;\nconst rawPrompt = String(payload.prompt ?? payload.message ?? payload.task ?? '').trim();\nconst prompt = rawPrompt || 'Revisa la arquitectura y marca riesgos tecnicos concretos.';\nreturn [\n  {\n    json: {\n      requestId: payload.requestId ?? 'req-' + Date.now(),\n      workflow: 'Oracle AI - APEX',\n      agentId: 'APEX',\n      role: 'Diagnostico tecnico del repo',\n      specialty: 'Evalua arquitectura, deuda tecnica y decisiones de implementacion.',\n      prompt,\n      requestedBy: String(payload.requestedBy ?? 'ARIA'),\n      source: payload.source ?? ($json.body ? 'webhook' : 'workflow'),\n      freeOnly: true,\n    },\n  },\n];"
+        "jsCode": "const payload = $json.body && typeof $json.body === 'object' ? $json.body : $json;\nconst rawPrompt = String(payload.prompt ?? payload.message ?? payload.task ?? '').trim();\nconst prompt = rawPrompt || 'Revisa la arquitectura y marca riesgos tecnicos concretos.';\nreturn [\n  {\n    json: {\n      requestId: payload.requestId ?? 'req-' + Date.now(),\n      workflow: 'Oracle AI - APEX',\n      agentId: 'APEX',\n      role: 'Diagnostico tecnico del repo',\n      specialty: 'Evalua arquitectura, deuda tecnica y decisiones de implementacion.',\n      prompt,\n      requestedBy: String(payload.requestedBy ?? 'ARIA'),\n      source: payload.source ?? ($json.body ? 'webhook' : 'workflow'),\n      cutoffReason: payload.cutoffReason ?? 'not-needed',\n      executionOrder: payload.executionOrder ?? [],\n      tieBreakerContext: payload.tieBreakerContext ?? null,\n      freeOnly: true,\n    },\n  },\n];"
       },
       "id": "apex-normalize",
       "name": "Normalize Input",
@@ -72,7 +72,7 @@
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "const prompt = $json.prompt ?? '';\nconst compactTask = prompt.length > 140 ? prompt.slice(0, 137) + '...' : prompt;\nreturn {\n  json: {\n    ...$json,\n    task: compactTask,\n    thought: 'APEX reviso el pedido y produjo una salida corta y accionable.',\n    message: 'APEX recomienda ejecutar un frente puntual alineado con su especialidad.',\n    findings: [\n      'APEX detecto una oportunidad clara vinculada al pedido',\n      'APEX sugiere mantener foco en una sola decision por iteracion',\n    ],\n    risks: [\n      'APEX marco una dependencia o supuesto a validar',\n    ],\n    nextSteps: [\n      'APEX propone un siguiente paso corto y medible',\n      'Cerrar con sintesis desde ARIA',\n    ],\n    latencyMs: 900,\n  },\n};"
+        "jsCode": "const prompt = $json.prompt ?? '';\nconst compactTask = prompt.length > 140 ? prompt.slice(0, 137) + '...' : prompt;\nreturn {\n  json: {\n    ...$json,\n    task: compactTask,\n    thought: 'APEX reviso el pedido y produjo una salida corta y accionable.',\n    message: 'APEX recomienda ejecutar un frente puntual alineado con su especialidad.',\n    findings: [\n      'APEX detecto una oportunidad clara vinculada al pedido',\n      'APEX sugiere mantener foco en una sola decision por iteracion',\n    ],\n    risks: [\n      'APEX marco una dependencia o supuesto a validar',\n    ],\n    nextSteps: [\n      'APEX propone un siguiente paso corto y medible',\n      'Cerrar con sintesis desde ARIA',\n    ],\n    latencyMs: 900,\n    cutoffReason: $json.cutoffReason ?? 'not-needed',\n    executionOrder: $json.executionOrder ?? [],\n    tieBreakerContext: $json.tieBreakerContext ?? null,\n  },\n};"
       },
       "id": "apex-build-output",
       "name": "Build Specialist Output",
@@ -103,13 +103,13 @@
         "assignments": {
           "assignments": [
             {
-              "id": "resultMode-5dffff0c",
+              "id": "resultMode-6a0f8bfd",
               "name": "resultMode",
               "value": "manual-preview",
               "type": "string"
             },
             {
-              "id": "summarySource-57e4cdda",
+              "id": "summarySource-36e0ddb6",
               "name": "summarySource",
               "value": "apex-preview",
               "type": "string"

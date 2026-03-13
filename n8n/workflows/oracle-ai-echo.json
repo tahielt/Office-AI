@@ -58,7 +58,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const payload = $json.body && typeof $json.body === 'object' ? $json.body : $json;\nconst rawPrompt = String(payload.prompt ?? payload.message ?? payload.task ?? '').trim();\nconst prompt = rawPrompt || 'Convierte la respuesta en un mensaje claro para equipo o cliente.';\nreturn [\n  {\n    json: {\n      requestId: payload.requestId ?? 'req-' + Date.now(),\n      workflow: 'Oracle AI - ECHO',\n      agentId: 'ECHO',\n      role: 'Comunicaciones',\n      specialty: 'Da claridad narrativa, tono y estructura de salida.',\n      prompt,\n      requestedBy: String(payload.requestedBy ?? 'ARIA'),\n      source: payload.source ?? ($json.body ? 'webhook' : 'workflow'),\n      freeOnly: true,\n    },\n  },\n];"
+        "jsCode": "const payload = $json.body && typeof $json.body === 'object' ? $json.body : $json;\nconst rawPrompt = String(payload.prompt ?? payload.message ?? payload.task ?? '').trim();\nconst prompt = rawPrompt || 'Convierte la respuesta en un mensaje claro para equipo o cliente.';\nreturn [\n  {\n    json: {\n      requestId: payload.requestId ?? 'req-' + Date.now(),\n      workflow: 'Oracle AI - ECHO',\n      agentId: 'ECHO',\n      role: 'Comunicaciones',\n      specialty: 'Da claridad narrativa, tono y estructura de salida.',\n      prompt,\n      requestedBy: String(payload.requestedBy ?? 'ARIA'),\n      source: payload.source ?? ($json.body ? 'webhook' : 'workflow'),\n      cutoffReason: payload.cutoffReason ?? 'not-needed',\n      executionOrder: payload.executionOrder ?? [],\n      tieBreakerContext: payload.tieBreakerContext ?? null,\n      freeOnly: true,\n    },\n  },\n];"
       },
       "id": "echo-normalize",
       "name": "Normalize Input",
@@ -72,7 +72,7 @@
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "const prompt = $json.prompt ?? '';\nconst compactTask = prompt.length > 140 ? prompt.slice(0, 137) + '...' : prompt;\nreturn {\n  json: {\n    ...$json,\n    task: compactTask,\n    thought: 'ECHO reviso el pedido y produjo una salida corta y accionable.',\n    message: 'ECHO recomienda ejecutar un frente puntual alineado con su especialidad.',\n    findings: [\n      'ECHO detecto una oportunidad clara vinculada al pedido',\n      'ECHO sugiere mantener foco en una sola decision por iteracion',\n    ],\n    risks: [\n      'ECHO marco una dependencia o supuesto a validar',\n    ],\n    nextSteps: [\n      'ECHO propone un siguiente paso corto y medible',\n      'Cerrar con sintesis desde ARIA',\n    ],\n    latencyMs: 900,\n  },\n};"
+        "jsCode": "const prompt = $json.prompt ?? '';\nconst compactTask = prompt.length > 140 ? prompt.slice(0, 137) + '...' : prompt;\nreturn {\n  json: {\n    ...$json,\n    task: compactTask,\n    thought: 'ECHO reviso el pedido y produjo una salida corta y accionable.',\n    message: 'ECHO recomienda ejecutar un frente puntual alineado con su especialidad.',\n    findings: [\n      'ECHO detecto una oportunidad clara vinculada al pedido',\n      'ECHO sugiere mantener foco en una sola decision por iteracion',\n    ],\n    risks: [\n      'ECHO marco una dependencia o supuesto a validar',\n    ],\n    nextSteps: [\n      'ECHO propone un siguiente paso corto y medible',\n      'Cerrar con sintesis desde ARIA',\n    ],\n    latencyMs: 900,\n    cutoffReason: $json.cutoffReason ?? 'not-needed',\n    executionOrder: $json.executionOrder ?? [],\n    tieBreakerContext: $json.tieBreakerContext ?? null,\n  },\n};"
       },
       "id": "echo-build-output",
       "name": "Build Specialist Output",
@@ -103,13 +103,13 @@
         "assignments": {
           "assignments": [
             {
-              "id": "resultMode-2e21b750",
+              "id": "resultMode-6c6fe62d",
               "name": "resultMode",
               "value": "manual-preview",
               "type": "string"
             },
             {
-              "id": "summarySource-cc77b5ef",
+              "id": "summarySource-dc288432",
               "name": "summarySource",
               "value": "echo-preview",
               "type": "string"
