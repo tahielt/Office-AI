@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local n8n runtime data
+n8n/.cache/
+n8n/.n8n/

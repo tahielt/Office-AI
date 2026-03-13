@@ -22,6 +22,14 @@ const SUMMON_LEFT: Record<string, string> = {
   vera:"59%", echo:"72%", zion:"85%", pulse:"93%"
 };
 
+const COLLAB_POSITIONS: Record<"alpha" | "beta" | "gamma", { top: string; left: string; point: { x: number; y: number } }> = {
+  alpha: { top: "40%", left: "34%", point: { x: 34, y: 40 } },
+  beta: { top: "40%", left: "66%", point: { x: 66, y: 40 } },
+  gamma: { top: "66%", left: "50%", point: { x: 50, y: 66 } },
+};
+
+const ARIA_POINT = { x: 50, y: 50 };
+
 function ScoutDesk() {
   return (
     <svg width="140" height="80" viewBox="0 0 160 90" xmlns="http://www.w3.org/2000/svg">
@@ -238,6 +246,34 @@ export default function JRPGBoard({ agents }: Props) {
   const ariaAgent   = agents.find(a => a.id === "aria");
   const boardAgents = agents.filter(a => a.id !== "aria");
   const ariaActive  = ariaAgent?.status !== "idle";
+  const activeCollaborators = boardAgents.filter((agent) => agent.zone === "collab" || Boolean(agent.lane));
+
+  const getAgentPlacement = (agent: Agent) => {
+    const desk = DESK_POSITIONS[agent.id];
+    if (!desk) return null;
+
+    if (agent.zone === "collab" && agent.lane && COLLAB_POSITIONS[agent.lane]) {
+      return {
+        top: COLLAB_POSITIONS[agent.lane].top,
+        left: COLLAB_POSITIONS[agent.lane].left,
+        transform: "translate(-50%,-110%)",
+      };
+    }
+
+    if (agent.zone === "handoff" || agent.isSummoned) {
+      return {
+        top: "14%",
+        left: SUMMON_LEFT[agent.id] || desk.left,
+        transform: "translate(-50%,-100%)",
+      };
+    }
+
+    return {
+      top: desk.top,
+      left: desk.left,
+      transform: "translate(-50%,-170%)",
+    };
+  };
 
   return (
     <div className="flex-1 w-full h-full relative overflow-hidden flex items-center justify-center"
@@ -292,6 +328,104 @@ export default function JRPGBoard({ agents }: Props) {
           <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" style={{animationDelay:"0.5s"}}/>
         </div>
 
+        {/* Collaboration lanes */}
+        <div className="absolute inset-0 pointer-events-none z-20">
+          {activeCollaborators.map((agent) => {
+            const lane = agent.lane && COLLAB_POSITIONS[agent.lane] ? COLLAB_POSITIONS[agent.lane] : null;
+            if (!lane) return null;
+
+            const dx = lane.point.x - ARIA_POINT.x;
+            const dy = lane.point.y - ARIA_POINT.y;
+            const length = Math.sqrt(dx * dx + dy * dy);
+            const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+
+            return (
+              <React.Fragment key={`${agent.id}-link`}>
+                <div
+                  className="absolute h-[2px] rounded-full"
+                  style={{
+                    left: `${ARIA_POINT.x}%`,
+                    top: `${ARIA_POINT.y}%`,
+                    width: `${length}%`,
+                    transform: `translateY(-50%) rotate(${angle}deg)`,
+                    transformOrigin: "0 50%",
+                    background: `linear-gradient(90deg, rgba(226,232,240,0.6), ${agent.color})`,
+                    boxShadow: `0 0 10px ${agent.color}45`,
+                    opacity: 0.7,
+                  }}
+                />
+                <div
+                  className="absolute w-24 -translate-x-1/2 -translate-y-1/2 rounded-md px-2 py-1 text-center"
+                  style={{
+                    left: lane.left,
+                    top: "23%",
+                    background: "rgba(8,8,16,0.88)",
+                    border: `1px solid ${agent.color}35`,
+                    color: agent.color,
+                    boxShadow: `0 0 18px ${agent.color}18`,
+                  }}
+                >
+                  <div className="text-[8px] font-mono tracking-[0.25em]">{agent.statusDetail || agent.name}</div>
+                </div>
+              </React.Fragment>
+            );
+          })}
+          {activeCollaborators.length === 2 && (
+            <div
+              className="absolute h-[1px] rounded-full"
+              style={{
+                left: COLLAB_POSITIONS.alpha.left,
+                top: COLLAB_POSITIONS.alpha.top,
+                width: "32%",
+                transform: "translateY(-50%)",
+                transformOrigin: "0 50%",
+                background: "linear-gradient(90deg, rgba(0,245,255,0.3), rgba(255,255,255,0.5), rgba(249,115,22,0.3))",
+                opacity: 0.6,
+              }}
+            />
+          )}
+          {activeCollaborators.length === 3 && (
+            <>
+              <div
+                className="absolute h-[1px] rounded-full"
+                style={{
+                  left: COLLAB_POSITIONS.alpha.left,
+                  top: COLLAB_POSITIONS.alpha.top,
+                  width: "32%",
+                  transform: "translateY(-50%)",
+                  transformOrigin: "0 50%",
+                  background: "linear-gradient(90deg, rgba(0,245,255,0.28), rgba(255,255,255,0.45), rgba(249,115,22,0.28))",
+                  opacity: 0.55,
+                }}
+              />
+              <div
+                className="absolute h-[1px] rounded-full"
+                style={{
+                  left: "38%",
+                  top: "48%",
+                  width: "15%",
+                  transform: "rotate(58deg)",
+                  transformOrigin: "0 50%",
+                  background: "linear-gradient(90deg, rgba(0,245,255,0.2), rgba(255,255,255,0.4))",
+                  opacity: 0.45,
+                }}
+              />
+              <div
+                className="absolute h-[1px] rounded-full"
+                style={{
+                  left: "62%",
+                  top: "48%",
+                  width: "15%",
+                  transform: "rotate(122deg)",
+                  transformOrigin: "0 50%",
+                  background: "linear-gradient(90deg, rgba(255,255,255,0.4), rgba(249,115,22,0.2))",
+                  opacity: 0.45,
+                }}
+              />
+            </>
+          )}
+        </div>
+
         {/* ── ARIA — centro del board ── */}
         {ariaAgent && (
           <div
@@ -313,6 +447,22 @@ export default function JRPGBoard({ agents }: Props) {
                 {STATUS_CONFIG[ariaAgent.status]?.label || "PROCESANDO"}
               </div>
             )}
+            {ariaAgent.statusDetail && (
+              <div
+                className="absolute font-mono text-[8px] px-2 py-0.5 rounded whitespace-nowrap"
+                style={{
+                  top: "-14px",
+                  left: "50%",
+                  transform: "translateX(-50%)",
+                  background: "rgba(10,10,15,0.92)",
+                  border: "1px solid rgba(226,232,240,0.35)",
+                  color: "rgba(226,232,240,0.75)",
+                  letterSpacing: "0.18em",
+                }}
+              >
+                {ariaAgent.statusDetail}
+              </div>
+            )}
             <AgentSprite id="aria" color="#e2e8f0" isBlinking={ariaActive} status={ariaAgent.status} animation={ariaAgent.animation}/>
           </div>
         )}
@@ -321,17 +471,25 @@ export default function JRPGBoard({ agents }: Props) {
         {boardAgents.map((agent) => {
           const pos = DESK_POSITIONS[agent.id];
           if (!pos) return null;
-          const isSummoned = agent.isSummoned;
-          const agentLeft  = isSummoned ? (SUMMON_LEFT[agent.id] || "50%") : pos.left;
-          const agentTop   = isSummoned ? "14%" : pos.top;
+          const placement = getAgentPlacement(agent);
+          if (!placement) return null;
           const statusInfo = STATUS_CONFIG[agent.status] || STATUS_CONFIG.idle;
           const isActive   = agent.status !== "idle" && agent.status !== "done";
+          const deskDimmed = agent.zone === "collab" || agent.zone === "handoff";
 
           return (
             <React.Fragment key={agent.id}>
               {/* Desk */}
               <div className="absolute pointer-events-none"
-                style={{ top:pos.top, left:pos.left, transform:"translate(-50%,-50%)", zIndex:10 }}>
+                style={{
+                  top:pos.top,
+                  left:pos.left,
+                  transform:"translate(-50%,-50%)",
+                  zIndex:10,
+                  opacity: deskDimmed ? 0.25 : isActive ? 1 : 0.72,
+                  filter: isActive ? `drop-shadow(0 0 10px ${agent.color}35)` : "none",
+                  transition: "opacity 0.25s ease, filter 0.25s ease",
+                }}>
                 {DESK_MAP[agent.id]}
                 <div className="text-center mt-0.5 text-[8px] font-mono tracking-[0.2em] px-1.5 py-0.5 rounded-sm"
                   style={{ color:"rgba(255,255,255,0.18)", background:"rgba(0,0,0,0.5)", border:"1px solid rgba(255,255,255,0.05)" }}>
@@ -342,8 +500,8 @@ export default function JRPGBoard({ agents }: Props) {
               {/* Sprite */}
               <div className="absolute flex flex-col items-center transition-all duration-[1200ms] ease-in-out"
                 style={{
-                  top:agentTop, left:agentLeft,
-                  transform: isSummoned ? "translate(-50%,-100%)" : "translate(-50%,-170%)",
+                  top:placement.top, left:placement.left,
+                  transform: placement.transform,
                   zIndex:30,
                 }}>
                 {isActive && (
@@ -361,10 +519,34 @@ export default function JRPGBoard({ agents }: Props) {
                     }}/>
                   </div>
                 )}
-                <div className="w-16 h-16 relative" style={{ filter:`drop-shadow(0 0 6px ${agent.color}50)` }}>
+                {agent.statusDetail && (
+                  <div
+                    className="absolute font-mono text-[8px] px-2 py-0.5 rounded whitespace-nowrap"
+                    style={{
+                      top: "-18px",
+                      left: "50%",
+                      transform: "translateX(-50%)",
+                      background: "rgba(8,8,16,0.92)",
+                      border: `1px solid ${agent.color}30`,
+                      color: agent.color,
+                      letterSpacing: "0.18em",
+                      zIndex: 38,
+                    }}
+                  >
+                    {agent.statusDetail}
+                  </div>
+                )}
+                <div
+                  className="w-16 h-16 relative transition-all duration-300"
+                  style={{
+                    filter: isActive ? `drop-shadow(0 0 12px ${agent.color}85)` : `drop-shadow(0 0 3px ${agent.color}20)`,
+                    opacity: isActive ? 1 : 0.78,
+                    transform: isActive ? "scale(1.02)" : "scale(1)",
+                  }}
+                >
                   <AgentSprite id={agent.id} color={agent.color} isBlinking={true} status={agent.status} animation={agent.animation}/>
                 </div>
-                {agent.isSummoned && (
+                {(agent.isSummoned || agent.zone !== "desk") && (
                   <div className="mt-1 text-[9px] font-mono tracking-widest px-2 py-0.5 rounded-sm"
                     style={{ background:"rgba(0,0,0,0.85)", border:`1px solid ${agent.color}60`, color:agent.color, zIndex:40 }}>
                     {agent.name}

@@ -324,7 +324,7 @@ function VoxSprite({ color, animation, status }: SP) {
         <rect x="32.5" y="40" width="1.5" height="2.5" rx="0.3" fill="#c084fc" opacity="0.7"/>
         <rect x="22" y="46" width="20" height="2" rx="1" fill="#1e0a2e" opacity="0.8"/>
         <rect x="22" y="46" width={active?"16":"10"} height="2" rx="1" fill={color} opacity="0.9"/>
-        {talking?<g transform="translate(32,30)">{[-6,-3,0,3,6].map((x,i)=><rect key={i} x={x-1.5} y="-3" width="3" height="6" rx="1.5" fill="#c084fc" opacity="0.85" style={{transformOrigin:`${x}px 0`,animation:`wave .4s ease-in-out infinite`,animationDelay:[".0s",".08s",".16s",".08s","0s"][i]}}/>)}</g>:<line x1="27" y1="30" x2="37" y2="30" stroke={color} strokeWidth="1.5" strokeLinecap="round" opacity="0.5"/>}
+        {talking?<g transform="translate(32,30)">{[-6,-3,0,3,6].map((x,i)=><rect key={i} x={x-1.5} y="-3" width="3" height="6" rx="1.5" fill="#c084fc" opacity="0.85" style={{transformOrigin:`${x}px 0`,animation:`wave .4s ease-in-out ${[".0s",".08s",".16s",".08s","0s"][i]} infinite`}}/>)}</g>:<line x1="27" y1="30" x2="37" y2="30" stroke={color} strokeWidth="1.5" strokeLinecap="round" opacity="0.5"/>}
         <g style={{animation:walking?"armL .5s ease-in-out infinite":typing?"typeBounce .25s ease-in-out infinite":"none",transformOrigin:"13px 32px"}}>
           <rect x="9" y="30" width="5" height="18" rx="2.5" fill="#1e0a2e" stroke={color} strokeWidth="0.7" strokeOpacity="0.85"/>
           <rect x="6" y="44" width="8" height="5" rx="1.5" fill="#2d0a4e" stroke="#c084fc" strokeWidth="0.6" opacity="0.8"/>
@@ -345,7 +345,7 @@ function VoxSprite({ color, animation, status }: SP) {
   );
 }
 
-function AriaSprite({ color, animation, status }: SP) {
+function AriaSprite({ animation, status }: SP) {
   const thinking=animation==="thinking", talking=animation==="talking";
   const active=!["idle","done"].includes(status);
   return (
@@ -370,9 +370,9 @@ function AriaSprite({ color, animation, status }: SP) {
         <circle cx="26" cy="23.5" r="2" fill="#ffffff" opacity="0.9" filter="url(#ag-glow)"/>
         <circle cx="38" cy="23.5" r="2" fill="#ffffff" opacity="0.9" filter="url(#ag-glow)"/>
         <line x1="24" y1="15" x2="40" y2="15" stroke="#7ec8e3" strokeWidth="0.5" opacity="0.5" strokeDasharray="2 2"/>
-        {talking?<g transform="translate(32,34)">{[-8,-4,0,4,8].map((x,i)=><rect key={i} x={x-1.5} y="-3" width="3" height="6" rx="1.5" fill="#b0dcf0" opacity="0.9" style={{transformOrigin:`${x}px 0`,animation:`wave .4s ease-in-out infinite`,animationDelay:[".0s",".1s",".2s",".1s","0s"][i]}}/>)}</g>:<line x1="24" y1="34" x2="40" y2="34" stroke="#7ec8e3" strokeWidth="1.5" strokeLinecap="round" opacity="0.6"/>}
+        {talking?<g transform="translate(32,34)">{[-8,-4,0,4,8].map((x,i)=><rect key={i} x={x-1.5} y="-3" width="3" height="6" rx="1.5" fill="#b0dcf0" opacity="0.9" style={{transformOrigin:`${x}px 0`,animation:`wave .4s ease-in-out ${[".0s",".1s",".2s",".1s","0s"][i]} infinite`}}/>)}</g>:<line x1="24" y1="34" x2="40" y2="34" stroke="#7ec8e3" strokeWidth="1.5" strokeLinecap="round" opacity="0.6"/>}
         <rect x="21" y="39" width="22" height="12" rx="3" fill="#0a1a2a" fillOpacity="0.6" stroke="#7ec8e3" strokeWidth="0.5" opacity="0.8"/>
-        {[0,1,2,3,4].map(i=>{const h=[6,9,5,10,7][i];return <rect key={i} x={23+i*4} y={51-h} width="2.5" height={h} rx="1" fill={active?"#b0dcf0":"#4a8fa8"} opacity={active?0.9:0.5} style={{transformOrigin:`${24.25+i*4}px 51px`,animation:active?`wave .6s ease-in-out infinite`:"none",animationDelay:`${i*.1}s`}}/>;}) }
+        {[0,1,2,3,4].map(i=>{const h=[6,9,5,10,7][i];return <rect key={i} x={23+i*4} y={51-h} width="2.5" height={h} rx="1" fill={active?"#b0dcf0":"#4a8fa8"} opacity={active?0.9:0.5} style={{transformOrigin:`${24.25+i*4}px 51px`,animation:active?`wave .6s ease-in-out ${i*.1}s infinite`:"none"}}/>;}) }
         <line x1="26" y1="10" x2="22" y2="4" stroke="#8ecfe8" strokeWidth="1" strokeLinecap="round" opacity="0.7"/>
         <circle cx="22" cy="3.5" r="1.5" fill="#ffffff" opacity="0.8" filter="url(#ag-glow)"/>
         <line x1="38" y1="10" x2="42" y2="4" stroke="#8ecfe8" strokeWidth="1" strokeLinecap="round" opacity="0.7"/>
@@ -395,7 +395,8 @@ function AriaSprite({ color, animation, status }: SP) {
   );
 }
 
-export default function AgentSprite({ id, color, isBlinking, status, animation }: Props) {
+export default function AgentSprite(props: Props) {
+  const { id, color, status, animation } = props;
   if (id==="scout"||id==="lyra") return <ScoutSprite color={color} status={status} animation={animation}/>;
   if (id==="apex")  return <ApexSprite  color={color} status={status} animation={animation}/>;
   if (id==="vera")  return <VeraSprite  color={color} status={status} animation={animation}/>;

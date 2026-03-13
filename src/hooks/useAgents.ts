@@ -1,251 +1,313 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
-import { Agent, Task, SystemMetrics } from "@/types/agent";
-import { INITIAL_AGENTS, generateMockTask, getInitialMetrics } from "@/lib/agents";
+
+import { useCallback, useState } from "react";
+
+import { INITIAL_AGENTS, getInitialMetrics } from "@/lib/agents";
+import { Agent, AgentAnimation, AgentLane, AgentStatus, AgentZone, SystemMetrics, TeamAssignment } from "@/types/agent";
+
+const AGENT_ALIASES: Record<string, string> = {
+  lyra: "scout",
+  pulse: "vox",
+};
+
+const EXECUTION_STATE: Record<string, { status: AgentStatus; animation: AgentAnimation }> = {
+  scout: { status: "researching", animation: "thinking" },
+  apex: { status: "coding", animation: "typing" },
+  vera: { status: "analyzing", animation: "thinking" },
+  zion: { status: "thinking", animation: "thinking" },
+  forge: { status: "running", animation: "typing" },
+  echo: { status: "thinking", animation: "talking" },
+  vox: { status: "thinking", animation: "typing" },
+  aria: { status: "meeting", animation: "talking" },
+};
+
+const BASE_CURRENT_TASKS = Object.fromEntries(INITIAL_AGENTS.map((agent) => [agent.id, agent.currentTask])) as Record<string, string>;
+
+type OrchestratorErrorPayload = {
+  error?: string;
+};
+
+type OrchestratorStepPayload = {
+  agentId: string;
+  task: string;
+  thought: string;
+  message: string;
+  provider: string;
+  teamAssignments?: TeamAssignment[];
+  teamModeUsed?: boolean;
+  lane?: AgentLane;
+  zone?: AgentZone;
+  interactionTargetId?: string;
+  statusDetail?: string;
+  handoffTargets?: string[];
+  sources?: Array<{
+    title: string;
+    url: string;
+    snippet: string;
+  }>;
+};
+
+type OrchestratorSuccessPayload = {
+  steps?: OrchestratorStepPayload[];
+};
+
+function normalizeTargetId(rawId: string | null, agents: Agent[]) {
+  if (!rawId) return null;
+  const normalized = AGENT_ALIASES[rawId] ?? rawId;
+  if (agents.some((agent) => agent.id === normalized)) return normalized;
+  return agents.find((agent) => agent.id.startsWith(normalized))?.id ?? null;
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
+}
+
+function createLog(type: "system" | "communication" | "command", text: string) {
+  return {
+    id: crypto.randomUUID(),
+    type,
+    text,
+    timestamp: new Date(),
+  };
+}
+
+function appendAgentLogs(agent: Agent, entries: ReturnType<typeof createLog>[]) {
+  return {
+    ...agent,
+    log: [...agent.log, ...entries].slice(-12),
+  };
+}
+
+function getNextTeamModeValue(cmd: string, currentValue: boolean) {
+  const lower = cmd.toLowerCase().trim();
+  if (!lower.startsWith("/team_mode")) return null;
+  if (/\b(on|enable|1|true)\b/.test(lower)) return true;
+  if (/\b(off|disable|0|false)\b/.test(lower)) return false;
+  return !currentValue;
+}
+
+function estimateTokenUnits(steps: OrchestratorStepPayload[]) {
+  const characters = steps.reduce((total, step) => total + step.task.length + step.message.length + step.thought.length, 0);
+  return Math.ceil(characters / 4);
+}
+
+function compactTeamSummary(assignments: TeamAssignment[]) {
+  return `Squad activo: ${assignments.map((assignment) => assignment.subAgentName).join(", ")}`;
+}
+
+function buildStandbyAgent(agent: Agent): Agent {
+  return {
+    ...agent,
+    status: "idle",
+    animation: "idle",
+    isSummoned: false,
+    currentTask: BASE_CURRENT_TASKS[agent.id] ?? agent.currentTask,
+    activeTeamAssignments: [],
+    lane: null,
+    zone: "desk",
+    interactionTargetId: null,
+    statusDetail: null,
+  };
+}
+
+function getAgentExecutionState(agentId: string, hasMultipleSpecialists: boolean) {
+  if (agentId === "aria") {
+    return hasMultipleSpecialists ? { status: "meeting" as AgentStatus, animation: "talking" as AgentAnimation } : EXECUTION_STATE.aria;
+  }
+  return EXECUTION_STATE[agentId] ?? { status: "thinking" as AgentStatus, animation: "thinking" as AgentAnimation };
+}
 
 export function useAgents() {
   const [agents, setAgents] = useState<Agent[]>(INITIAL_AGENTS);
-  const [tasks, setTasks] = useState<Task[]>([]);
   const [metrics, setMetrics] = useState<SystemMetrics>(getInitialMetrics());
-  const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
-
-  // Inicializar logIndex dinámicamente desde INITIAL_AGENTS
-  const [logIndex, setLogIndex] = useState<Record<string, number>>(
-    () => Object.fromEntries(INITIAL_AGENTS.map(a => [a.id, 0]))
-  );
-
-  // Simular completado de tareas
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const task = generateMockTask();
-      const duration = 3000 + Math.random() * 4000;
-
-      setTasks((prev) => [{ ...task, status: "running" }, ...prev.slice(0, 19)]);
-      setMetrics((prev) => ({ ...prev, activeTasks: prev.activeTasks + 1 }));
-
-      setTimeout(() => {
-        setTasks((prev) =>
-          prev.map((t) => t.id === task.id ? { ...t, status: "done", completedAt: new Date() } : t)
-        );
-        setMetrics((prev) => ({
-          ...prev,
-          activeTasks: Math.max(0, prev.activeTasks - 1),
-          totalTasks: prev.totalTasks + 1,
-          tokensTotal: prev.tokensTotal + Math.floor(Math.random() * 8000 + 1000),
-          requestsPerMin: Math.max(10, prev.requestsPerMin + Math.floor(Math.random() * 5) - 2),
-        }));
-        setAgents((prev) =>
-          prev.map((a) => a.id === task.agentId ? { ...a, tasksCompleted: a.tasksCompleted + 1 } : a)
-        );
-      }, duration);
-    }, 5000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // Sincronizar agente seleccionado
-  useEffect(() => {
-    if (selectedAgent) {
-      const updated = agents.find((a) => a.id === selectedAgent.id);
-      if (updated) setSelectedAgent(updated);
-    }
-  }, [agents]);
-
-  const selectAgent = useCallback((agent: Agent | null) => {
-    setSelectedAgent(agent);
-  }, []);
+  const [teamModeEnabled, setTeamModeEnabled] = useState(true);
 
   const handleCommand = useCallback(async (cmd: string) => {
-    // Detectar agente destino desde @Nombre
-    const match = cmd.match(/^@(\w+)/i);
-    let targetId = match ? match[1].toLowerCase() : null;
+    const trimmedCommand = cmd.trim();
+    if (!trimmedCommand) return;
 
-    // Verificar que el agente existe
-    if (targetId && !agents.some(a => a.id === targetId)) {
-      // Intentar match parcial (ej: "scout" → "scout")
-      const partial = agents.find(a => a.id.startsWith(targetId!));
-      targetId = partial?.id || null;
-    }
+    const requestedTeamModeValue = getNextTeamModeValue(trimmedCommand, teamModeEnabled);
+    if (requestedTeamModeValue !== null) {
+      setTeamModeEnabled(requestedTeamModeValue);
+      setAgents((prev) =>
+        prev.map((agent) => {
+          if (agent.id !== "aria") {
+            return buildStandbyAgent(agent);
+          }
 
-    // Comandos globales
-    if (cmd.startsWith("/summon_all")) {
-      setAgents((prev) => prev.map(a => ({ ...a, isSummoned: true, animation: "walking" })));
-      setTimeout(() => {
-        setAgents((prev) => prev.map(a => ({
-          ...a,
-          animation: a.id === "zion" ? "talking" : "idle",
-        })));
-      }, 1000);
-      // El orquestador responde como ZION
-      targetId = "zion";
-    }
-
-    if (cmd.startsWith("/dismiss")) {
-      setAgents((prev) => prev.map(a => ({ ...a, isSummoned: false, animation: "walking" })));
-      setTimeout(() => {
-        setAgents((prev) => prev.map(a => ({ ...a, animation: "idle" })));
-      }, 1000);
+          return appendAgentLogs(buildStandbyAgent(agent), [
+            createLog("system", `AGENTS TEAM ${requestedTeamModeValue ? "ONLINE" : "OFFLINE"}`),
+            createLog(
+              "communication",
+              requestedTeamModeValue
+                ? "ARIA deja a los squads internos listos para coordinar especialistas reales."
+                : "ARIA vuelve a ejecución individual y pausa los squads internos."
+            ),
+          ]);
+        })
+      );
       return;
     }
 
-    // Fallback inteligente si no se especificó agente
-    if (!targetId) {
-      const lower = cmd.toLowerCase();
-      if (lower.includes("código") || lower.includes("bug") || lower.includes("typescript") || lower.includes("función")) {
-        targetId = "apex";
-      } else if (lower.includes("datos") || lower.includes("métrica") || lower.includes("análisis")) {
-        targetId = "vera";
-      } else if (lower.includes("mercado") || lower.includes("competencia") || lower.includes("tendencia")) {
-        targetId = "scout";
-      } else if (lower.includes("email") || lower.includes("mensaje") || lower.includes("redactar")) {
-        targetId = "echo";
-      } else if (lower.includes("automatizar") || lower.includes("api") || lower.includes("webhook")) {
-        targetId = "forge";
-      } else if (lower.includes("reseña") || lower.includes("review") || lower.includes("reputación")) {
-        targetId = "pulse";
-      } else if (cmd.startsWith("/report_status")) {
-        targetId = "zion";
-      } else {
-        targetId = "zion";
-      }
+    if (trimmedCommand.startsWith("/summon_all")) {
+      setAgents((prev) =>
+        prev.map((agent) => ({
+          ...buildStandbyAgent(agent),
+          isSummoned: agent.id !== "aria",
+          status: agent.id === "aria" ? "meeting" : "meeting",
+          animation: agent.id === "aria" ? "talking" : "walking",
+          zone: agent.id === "aria" ? "collab" : "handoff",
+          interactionTargetId: agent.id === "aria" ? null : "aria",
+          statusDetail: agent.id === "aria" ? "SUMMON ALL" : "EN TRANSITO",
+          currentTask:
+            agent.id === "aria"
+              ? "Convocando a todos los especialistas al frente."
+              : `Convocado al frente por ARIA para la siguiente solicitud.`,
+        }))
+      );
+      setMetrics((prev) => ({ ...prev, activeTasks: INITIAL_AGENTS.length }));
+      return;
     }
 
-    // Agregar el mensaje del usuario al log del agente destino
+    if (trimmedCommand.startsWith("/dismiss")) {
+      setAgents((prev) => prev.map((agent) => buildStandbyAgent(agent)));
+      setMetrics((prev) => ({ ...prev, activeTasks: 0 }));
+      return;
+    }
+
     setAgents((prev) =>
       prev.map((agent) => {
-        if (targetId === agent.id || cmd.startsWith("/")) {
-          const userLog = {
-            id: crypto.randomUUID(),
-            type: "communication" as const,
-            text: cmd,
-            timestamp: new Date(),
-          };
-          return { ...agent, log: [...agent.log.slice(-14), userLog] };
+        const standbyAgent = buildStandbyAgent(agent);
+        if (agent.id === "aria") {
+          return appendAgentLogs(
+            {
+              ...standbyAgent,
+              status: "meeting",
+              animation: "talking",
+              zone: "collab",
+              statusDetail: "TRIAGE REAL",
+              currentTask: "Clasificando el pedido y esperando la decisión real de ARIA...",
+            },
+            [createLog("command", trimmedCommand)]
+          );
         }
-        return agent;
+
+        return standbyAgent;
       })
     );
 
-    if (!targetId) return;
-
-    // Poner al agente en modo "pensando"
-    setAgents((prev) =>
-      prev.map((a) => a.id === targetId ? { ...a, status: "thinking", animation: "thinking" } : a)
-    );
+    setMetrics((prev) => ({
+      ...prev,
+      activeTasks: 1,
+      requestsPerMin: prev.requestsPerMin + 1,
+    }));
 
     try {
       const res = await fetch("/api/orchestrator", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          prompt: cmd,
-          currentAgents: agents.map(a => ({ id: a.id, name: a.name, role: a.role })),
+          prompt: trimmedCommand,
+          teamMode: teamModeEnabled,
+          currentAgents: agents.map((agent) => ({ id: agent.id, name: agent.name, role: agent.role })),
         }),
       });
 
+      const payload = (await res.json().catch(() => null)) as
+        | (OrchestratorSuccessPayload & OrchestratorErrorPayload)
+        | null;
+
       if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || "Error al conectar con el orquestador");
+        throw new Error(payload?.error || "Error al conectar con el orquestador");
       }
 
-      if (!res.body) throw new Error("Sin stream de respuesta");
+      const steps = payload?.steps ?? [];
+      if (steps.length === 0) {
+        throw new Error("El orquestador no devolvió pasos ejecutables");
+      }
 
-      const responseLogId = crypto.randomUUID();
-      const thoughtLogId = crypto.randomUUID();
+      const touchedAgents = new Set(
+        steps
+          .map((step) => normalizeTargetId(step.agentId.toLowerCase(), agents))
+          .filter((agentId): agentId is string => Boolean(agentId))
+      );
+      const specialistCount = [...touchedAgents].filter((agentId) => agentId !== "aria").length;
 
-      // Placeholders iniciales
       setAgents((prev) =>
         prev.map((agent) => {
-          if (agent.id === targetId) {
-            return {
-              ...agent,
-              status: "thinking",
-              log: [
-                ...agent.log.slice(-13),
-                { id: thoughtLogId, type: "thought" as const, text: "", timestamp: new Date() },
-                { id: responseLogId, type: "communication" as const, text: "...", timestamp: new Date() },
-              ],
-            };
+          const matchingSteps = steps.filter(
+            (step) => normalizeTargetId(step.agentId.toLowerCase(), prev) === agent.id
+          );
+
+          if (matchingSteps.length === 0) {
+            return buildStandbyAgent(agent);
           }
-          return agent;
+
+          const latestStep = matchingSteps[matchingSteps.length - 1];
+          const state = getAgentExecutionState(agent.id, specialistCount > 1);
+          const entries = matchingSteps.flatMap((step) => {
+            const logs = [];
+            if (step.teamModeUsed && step.teamAssignments?.length && agent.id === "aria") {
+              logs.push(createLog("system", compactTeamSummary(step.teamAssignments)));
+            }
+            if (step.statusDetail && agent.id === "aria") {
+              logs.push(createLog("system", step.statusDetail));
+            }
+            if (step.handoffTargets?.length && agent.id === "aria") {
+              logs.push(createLog("system", `Handoff activo: ${step.handoffTargets.join(", ")}`));
+            }
+            if (step.sources?.length && agent.id === "aria") {
+              logs.push(createLog("system", `${Math.min(step.sources.length, 4)} fuentes verificadas.`));
+            }
+            if (step.message.trim()) {
+              logs.push(createLog("communication", step.message.trim()));
+            }
+            return logs;
+          });
+
+          const nextAgent = appendAgentLogs(
+            {
+              ...buildStandbyAgent(agent),
+              currentTask: latestStep.task || agent.currentTask,
+              status: state.status,
+              animation: state.animation,
+              isSummoned: agent.id !== "aria" && touchedAgents.has(agent.id),
+              activeTeamAssignments: latestStep.teamAssignments ?? [],
+              lane: latestStep.lane ?? null,
+              zone: latestStep.zone ?? (agent.id === "aria" ? "collab" : touchedAgents.has(agent.id) ? "handoff" : "desk"),
+              interactionTargetId: latestStep.interactionTargetId ?? null,
+              statusDetail: latestStep.statusDetail ?? null,
+              tasksCompleted: agent.tasksCompleted + (agent.id === "aria" ? 0 : 1),
+            },
+            entries
+          );
+
+          return nextAgent;
         })
       );
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let fullText = "";
-      
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      setMetrics((prev) => ({
+        ...prev,
+        activeTasks: touchedAgents.size,
+        totalTasks: prev.totalTasks + Math.max(1, specialistCount),
+        tokensTotal: prev.tokensTotal + estimateTokenUnits(steps),
+      }));
+    } catch (error: unknown) {
+      const message = getErrorMessage(error, "Error desconocido al contactar al orquestador");
 
-        const chunk = decoder.decode(value, { stream: true });
-        // En Next.js App Router con streamText, los chunks de texto llegan con el prefix '0:'
-        // Ej: 0:"Hola mundo"\n
-        const lines = chunk.split('\n');
-        
-        for (const line of lines) {
-          if (line.startsWith('0:')) {
-            try {
-              // Extraer el string JSON parseable
-              const textChunk = JSON.parse(line.slice(2));
-              fullText += textChunk;
-              
-              let thoughtContent = "";
-              let communicationContent = "";
-
-              // Parsear tags <THOUGHT>
-              const thoughtMatch = fullText.match(/<THOUGHT>([\s\S]*?)<\/THOUGHT>/i);
-
-              if (thoughtMatch) {
-                thoughtContent = thoughtMatch[1].trim();
-                communicationContent = fullText.substring(thoughtMatch.index! + thoughtMatch[0].length).trim();
-              } else if (fullText.includes("<THOUGHT>")) {
-                thoughtContent = fullText.substring(fullText.indexOf("<THOUGHT>") + 9).trim();
-                communicationContent = "";
-              } else {
-                communicationContent = fullText.trim();
-              }
-
-              // Actualizar logs en tiempo real
-              setAgents((prev) =>
-                prev.map((agent) => {
-                  if (agent.id !== targetId) return agent;
-                  const logs = [...agent.log];
-                  const ti = logs.findIndex(l => l.id === thoughtLogId);
-                  const ci = logs.findIndex(l => l.id === responseLogId);
-                  if (ti > -1) logs[ti] = { ...logs[ti], text: thoughtContent || "Procesando..." };
-                  if (ci > -1) logs[ci] = { ...logs[ci], text: communicationContent || "..." };
-                  const animation = communicationContent.length > 0 ? "typing" : "thinking";
-                  return { ...agent, log: logs, animation };
-                })
-              );
-            } catch (e) {
-              // Ignorar parsing errors en chunks parciales
-            }
+      setAgents((prev) =>
+        prev.map((agent) => {
+          if (agent.id !== "aria") {
+            return buildStandbyAgent(agent);
           }
-        }
-      }
 
-      // Respuesta completa — volver a idle
-      setAgents((prev) =>
-        prev.map((a) => a.id === targetId ? { ...a, status: "idle", animation: "idle" } : a)
+          return appendAgentLogs(buildStandbyAgent(agent), [createLog("system", `ERROR: ${message}`)]);
+        })
       );
-    } catch (error: any) {
-      const errorLog = {
-        id: crypto.randomUUID(),
-        type: "system" as const,
-        text: `ERROR: ${error.message}`,
-        timestamp: new Date(),
-      };
-      setAgents((prev) =>
-        prev.map((agent) =>
-          agent.id === targetId
-            ? { ...agent, status: "idle", animation: "idle", log: [...agent.log.slice(-14), errorLog] }
-            : agent
-        )
-      );
+
+      setMetrics((prev) => ({ ...prev, activeTasks: 0 }));
     }
-  }, [agents]);
+  }, [agents, teamModeEnabled]);
 
-  return { agents, tasks, metrics, selectedAgent, selectAgent, handleCommand };
+  return { agents, metrics, teamModeEnabled, handleCommand };
 }

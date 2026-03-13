@@ -1,0 +1,84 @@
+{
+  "version": 1,
+  "workflows": [
+    {
+      "id": "intake-router",
+      "input": {
+        "requestId": "uuid",
+        "prompt": "string",
+        "teamMode": true
+      },
+      "output": {
+        "requestId": "uuid",
+        "task": "string",
+        "responseMode": "rapid|deep",
+        "leadAgents": ["SCOUT", "FORGE"],
+        "maxLeads": 2
+      }
+    },
+    {
+      "id": "lead-brief-builder",
+      "input": {
+        "requestId": "uuid",
+        "task": "string",
+        "leadAgent": "SCOUT|APEX|VERA|ZION|FORGE|ECHO|VOX",
+        "responseMode": "rapid|deep"
+      },
+      "output": {
+        "requestId": "uuid",
+        "leadAgent": "string",
+        "lane": "alpha|beta",
+        "brief": "string",
+        "contextFragments": ["string"]
+      }
+    },
+    {
+      "id": "specialist-runner",
+      "input": {
+        "requestId": "uuid",
+        "leadAgent": "string",
+        "lane": "alpha|beta",
+        "brief": "string",
+        "contextFragments": ["string"]
+      },
+      "output": {
+        "requestId": "uuid",
+        "leadAgent": "string",
+        "lane": "alpha|beta",
+        "summary": "string",
+        "risks": ["string"],
+        "nextSteps": ["string"],
+        "sources": [
+          {
+            "title": "string",
+            "url": "string"
+          }
+        ]
+      }
+    },
+    {
+      "id": "response-assembler",
+      "input": {
+        "requestId": "uuid",
+        "leadResponses": [
+          {
+            "leadAgent": "string",
+            "lane": "alpha|beta",
+            "summary": "string"
+          }
+        ]
+      },
+      "output": {
+        "requestId": "uuid",
+        "ariaSummary": "string",
+        "steps": [
+          {
+            "agentId": "string",
+            "lane": "alpha|beta",
+            "statusDetail": "string"
+          }
+        ]
+      }
+    }
+  ]
+}

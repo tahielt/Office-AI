@@ -5,6 +5,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 
 interface Props {
   agents: Agent[];
+  teamModeEnabled: boolean;
   onCommand: (cmd: string) => void;
 }
 
@@ -12,9 +13,36 @@ const MIN_HEIGHT = 48;   // colapsado — solo header
 const DEFAULT_HEIGHT = 220;
 const MAX_HEIGHT = 520;
 
-export default function Terminal({ agents, onCommand }: Props) {
+function shouldDisplayLog(text: string, type: "system" | "communication" | "command") {
+  if (type === "command") return true;
+  if (type === "system") {
+    return !/^Squad activo:/i.test(text) && !/fuentes verificadas/i.test(text);
+  }
+  return true;
+}
+
+function compactLogText(text: string, type: "system" | "communication" | "command") {
+  if (type === "command") return text;
+
+  const normalized = text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !/^(Resumen ejecutivo|Hallazgos clave|Oportunidades|Riesgos|Fuentes|Pasos|Chequeos|Prioridades|Borrador base|Salida sugerida)$/i.test(line));
+
+  const joined = normalized
+    .slice(0, type === "system" ? 1 : 2)
+    .join(" · ")
+    .replace(/^-+\s*/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const max = type === "system" ? 90 : 180;
+  return joined.length <= max ? joined : `${joined.slice(0, max - 1).trim()}…`;
+}
+
+export default function Terminal({ agents, teamModeEnabled, onCommand }: Props) {
   const [input, setInput] = useState("");
-  const [mounted, setMounted] = useState(false);
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
@@ -24,9 +52,7 @@ export default function Terminal({ agents, onCommand }: Props) {
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { setMounted(true); }, []);
-
-  // Combinar logs de todos los agentes en feed global
+  const engagedAgents = agents.filter((agent) => agent.status !== "idle" && agent.status !== "done");
   const allLogs = agents
     .flatMap((agent) =>
       agent.log.map((log) => ({
@@ -35,7 +61,10 @@ export default function Terminal({ agents, onCommand }: Props) {
         agentColor: agent.color,
       }))
     )
-    .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+    .filter((log): log is typeof log & { type: "system" | "communication" | "command" } => log.type !== "thought")
+    .filter((log) => shouldDisplayLog(log.text, log.type))
+    .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
+    .slice(-12);
 
   useEffect(() => {
     if (endRef.current && !isCollapsed) {
@@ -146,14 +175,35 @@ export default function Terminal({ agents, onCommand }: Props) {
           <span className="text-[10px] tracking-[0.2em] font-mono text-cyan-400/80 uppercase">
             Centro de Comandos
           </span>
-          {/* Indicador de logs activos */}
-          <div className="flex gap-1 ml-2">
-            {agents.filter(a => a.status !== "idle").map(a => (
-              <div
-                key={a.id}
-                className="w-1.5 h-1.5 rounded-full"
-                style={{ background: a.color, boxShadow: `0 0 4px ${a.color}` }}
-              />
+          <span
+            className="text-[8px] font-mono tracking-[0.18em] px-1.5 py-0.5 rounded-sm"
+            style={{
+              color: teamModeEnabled ? "#00f5ff" : "rgba(255,255,255,0.4)",
+              background: teamModeEnabled ? "rgba(0,245,255,0.12)" : "rgba(255,255,255,0.05)",
+              border: `1px solid ${teamModeEnabled ? "rgba(0,245,255,0.28)" : "rgba(255,255,255,0.08)"}`,
+            }}
+          >
+            {teamModeEnabled ? "AGENTS TEAM ONLINE" : "AGENTS TEAM OFF"}
+          </span>
+          <div className="flex items-center gap-1.5 ml-2 flex-wrap">
+            {engagedAgents.length === 0 && (
+              <span className="text-[9px] font-mono text-white/25 tracking-[0.18em] uppercase">
+                En espera
+              </span>
+            )}
+            {engagedAgents.map((agent) => (
+              <span
+                key={agent.id}
+                className="text-[8px] font-mono tracking-[0.18em] px-1.5 py-0.5 rounded-sm"
+                style={{
+                  color: agent.color,
+                  background: `${agent.color}14`,
+                  border: `1px solid ${agent.color}30`,
+                  boxShadow: `0 0 8px ${agent.color}18`,
+                }}
+              >
+                {agent.name}
+              </span>
             ))}
           </div>
         </div>
@@ -183,39 +233,60 @@ export default function Terminal({ agents, onCommand }: Props) {
 
       {/* ── Log Feed ── */}
       {!isCollapsed && (
-        <div className="flex-1 overflow-y-auto px-4 py-2 space-y-0.5 font-mono text-[11px] leading-relaxed">
+        <div className="flex-1 overflow-y-auto px-4 py-2 space-y-1 font-mono text-[11px] leading-relaxed">
+          <div className="flex items-center gap-2 pb-2 border-b border-white/5">
+            <span className="text-[9px] uppercase tracking-[0.18em] text-white/25">En foco</span>
+            {engagedAgents.length === 0 ? (
+              <span className="text-[10px] text-white/35">Ningún principal activo</span>
+            ) : (
+              engagedAgents.map((agent) => (
+                <span
+                  key={`focus-${agent.id}`}
+                  className="text-[9px] font-mono px-2 py-0.5 rounded-sm"
+                  style={{
+                    color: agent.color,
+                    background: `${agent.color}14`,
+                    border: `1px solid ${agent.color}25`,
+                    boxShadow: `0 0 10px ${agent.color}20`,
+                  }}
+                >
+                  {agent.name}
+                </span>
+              ))
+            )}
+          </div>
           {allLogs.length === 0 && (
             <div className="text-white/20 italic pt-2">
-              Esperando actividad de agentes...
+              Esperando un pedido real para ARIA y sus especialistas...
             </div>
           )}
           {allLogs.map((log) => (
             <div key={log.id} className="flex gap-2 group">
-              {/* Timestamp */}
-              <span className="text-white/20 shrink-0 select-none tabular-nums">
-                {mounted
-                  ? log.timestamp.toLocaleTimeString("es-AR", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" })
-                  : "··:··:··"
-                }
+              <span className="text-white/20 shrink-0 select-none tabular-nums" suppressHydrationWarning>
+                {log.timestamp.toLocaleTimeString("es-AR", {
+                  hour12: false,
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  second: "2-digit",
+                })}
               </span>
 
-              {/* Contenido según tipo */}
               {log.type === "system" && (
                 <span className="text-emerald-400/80">
                   <span className="text-white/30">[SYS:{log.agentName}]</span>{" "}
-                  {log.text}
+                  {compactLogText(log.text, log.type)}
                 </span>
               )}
-              {log.type === "thought" && (
-                <span className="text-white/35 italic">
-                  <span className="text-white/20">[PENSAMIENTO:{log.agentName}]</span>{" "}
+              {log.type === "command" && (
+                <span className="text-white/80">
+                  <span className="text-cyan-400/80">[TU]</span>{" "}
                   {log.text}
                 </span>
               )}
               {log.type === "communication" && (
                 <span style={{ color: log.agentColor }} className="font-medium">
                   <span style={{ color: log.agentColor, opacity: 0.7 }}>[{log.agentName}]</span>{" "}
-                  {log.text}
+                  {compactLogText(log.text, log.type)}
                 </span>
               )}
             </div>
@@ -233,14 +304,13 @@ export default function Terminal({ agents, onCommand }: Props) {
           {/* Quick commands */}
           <div className="flex gap-1.5 mb-2 flex-wrap">
             {[
-              { cmd: "/summon_all", label: "Convocar todos" },
-              { cmd: "/dismiss", label: "Dispersar" },
-              { cmd: "/report_status", label: "Estado del sistema" },
-              { cmd: "@scout analizar competencia", label: "@ Scout" },
-              { cmd: "@apex revisar código", label: "@ Apex" },
-              { cmd: "@forge automatizar", label: "@ Forge" },
-              { cmd: "@echo redactar email", label: "@ Echo" },
-              { cmd: "@pulse revisar reseñas", label: "@ Pulse" },
+              { cmd: "/team_mode", label: "Agents Team" },
+              { cmd: "/dismiss", label: "Reset visual" },
+              { cmd: "@aria decile a @scout que investigue competencia", label: "Scout" },
+              { cmd: "@aria pedile a @apex que revise el backend", label: "Apex" },
+              { cmd: "@aria activa a @scout y @zion para investigar y definir estrategia", label: "2 Agentes" },
+              { cmd: "@aria activa a @scout, @zion y @forge para investigar, definir estrategia y bajar un workflow", label: "3 Agentes" },
+              { cmd: "@aria pedile a @forge fragmentar el flujo de n8n para responder mas rapido", label: "n8n Fast Lane" },
             ].map(({ cmd, label }) => (
               <button
                 key={cmd}
@@ -267,7 +337,7 @@ export default function Terminal({ agents, onCommand }: Props) {
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Hablá con @aria o asigná tareas a tus agentes..."
+              placeholder="Hablá con @aria. Puede activar 2 o 3 agentes principales y mantener la respuesta corta..."
               className="flex-1 bg-transparent font-mono text-[12px] focus:outline-none placeholder:text-white/20"
               style={{ color: "#e2e8f0" }}
             />
