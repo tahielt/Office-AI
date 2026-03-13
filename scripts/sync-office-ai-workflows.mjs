@@ -78,6 +78,24 @@ function respondToWebhook(id, position, name = 'Respond to Webhook') {
   };
 }
 
+function executeWorkflowNode(id, position, name, workflowId) {
+  return {
+    parameters: {
+      source: 'database',
+      workflowId,
+      mode: 'once',
+      options: {
+        waitForSubWorkflow: true,
+      },
+    },
+    id,
+    name,
+    type: 'n8n-nodes-base.executeWorkflow',
+    typeVersion: 1.3,
+    position,
+  };
+}
+
 function setAssignments(id, position, name, assignments) {
   return {
     parameters: {
@@ -123,21 +141,6 @@ function switchNode(id, position, name, outputExpression, numberOutputs = 2) {
   };
 }
 
-function waitNode(id, position, name, amount = 1) {
-  return {
-    parameters: {
-      resume: 'timeInterval',
-      amount,
-      unit: 'seconds',
-    },
-    id,
-    name,
-    type: 'n8n-nodes-base.wait',
-    typeVersion: 1.1,
-    position,
-  };
-}
-
 function workflowBase(name, nodes, connections, description) {
   return {
     name,
@@ -160,9 +163,24 @@ function workflowBase(name, nodes, connections, description) {
 function buildIntakeRouter() {
   const nodes = [
     webhook('webhook-intake', [240, 260], 'Office Intake Webhook', 'office-ai/intake'),
+    manualTrigger('manual-intake', [240, 440], 'Manual Trigger'),
+    codeNode(
+      'sample-intake-request',
+      [520, 440],
+      'Sample Intake Request',
+      `return [
+  {
+    json: {
+      prompt: 'Investiga competidores, revisa el backend y converti el flujo a n8n gratis',
+      source: 'manual',
+      requestId: 'manual-' + Date.now(),
+    },
+  },
+];`
+    ),
     codeNode(
       'normalize-intake',
-      [520, 260],
+      [780, 340],
       'Normalize Intake',
       `const input = items[0]?.json ?? {};
 const payload = input.body && typeof input.body === 'object' ? input.body : input;
@@ -209,43 +227,59 @@ return [
     ),
     switchNode(
       'switch-mode',
-      [800, 260],
+      [1060, 340],
       'Route Mode',
       "={{$json.responseMode === 'deep' ? 1 : 0}}"
     ),
-    setAssignments('rapid-lane', [1080, 180], 'Rapid Lane', [
+    setAssignments('rapid-lane', [1340, 240], 'Rapid Lane', [
       assignment('lane', 'rapid'),
       assignment('targetLatencyMs', 2500, 'number'),
       assignment('handoffPlan', 'brief-builder -> specialist-runner -> compact-assembler'),
     ]),
-    setAssignments('deep-lane', [1080, 340], 'Deep Lane', [
+    setAssignments('deep-lane', [1340, 440], 'Deep Lane', [
       assignment('lane', 'deep'),
       assignment('targetLatencyMs', 4500, 'number'),
       assignment('handoffPlan', 'brief-builder -> specialist-runner -> full-assembler'),
     ]),
-    codeNode(
-      'finalize-route',
-      [1350, 260],
-      'Finalize Route',
-      `const current = items[0]?.json ?? {};
-const leadAgents = Array.isArray(current.leadAgents) ? current.leadAgents : [];
-const leadCount = Math.min(leadAgents.length || 1, 3);
-return [
-  {
-    json: {
-      ...current,
-      leadCount,
-      summary: \`ARIA envio la tarea por la lane \${current.lane} con \${leadCount} lead(s)\`,
-      stages: ['intake-router', 'lead-brief-builder', 'specialist-runner', 'response-assembler'],
-    },
-  },
-];`
+    executeWorkflowNode(
+      'run-lead-brief-builder',
+      [1620, 340],
+      'Run Lead Brief Builder',
+      '__LEAD_BRIEF_BUILDER_ID__'
     ),
-    respondToWebhook('respond-intake', [1600, 260]),
+    executeWorkflowNode(
+      'run-specialist-runner',
+      [1900, 340],
+      'Run Specialist Runner',
+      '__SPECIALIST_RUNNER_ID__'
+    ),
+    executeWorkflowNode(
+      'run-response-assembler',
+      [2180, 340],
+      'Run Response Assembler',
+      '__RESPONSE_ASSEMBLER_ID__'
+    ),
+    switchNode(
+      'return-mode',
+      [2460, 340],
+      'Return Mode',
+      "={{$json.source === 'webhook' ? 1 : 0}}"
+    ),
+    setAssignments('preview-result', [2740, 240], 'Preview Result', [
+      assignment('resultMode', 'manual-preview'),
+      assignment('summarySource', 'n8n-office-router'),
+    ]),
+    respondToWebhook('respond-intake', [2740, 440]),
   ];
 
   const connections = {
     'Office Intake Webhook': {
+      main: [[{ node: 'Normalize Intake', type: 'main', index: 0 }]],
+    },
+    'Manual Trigger': {
+      main: [[{ node: 'Sample Intake Request', type: 'main', index: 0 }]],
+    },
+    'Sample Intake Request': {
       main: [[{ node: 'Normalize Intake', type: 'main', index: 0 }]],
     },
     'Normalize Intake': {
@@ -258,13 +292,25 @@ return [
       ],
     },
     'Rapid Lane': {
-      main: [[{ node: 'Finalize Route', type: 'main', index: 0 }]],
+      main: [[{ node: 'Run Lead Brief Builder', type: 'main', index: 0 }]],
     },
     'Deep Lane': {
-      main: [[{ node: 'Finalize Route', type: 'main', index: 0 }]],
+      main: [[{ node: 'Run Lead Brief Builder', type: 'main', index: 0 }]],
     },
-    'Finalize Route': {
-      main: [[{ node: 'Respond to Webhook', type: 'main', index: 0 }]],
+    'Run Lead Brief Builder': {
+      main: [[{ node: 'Run Specialist Runner', type: 'main', index: 0 }]],
+    },
+    'Run Specialist Runner': {
+      main: [[{ node: 'Run Response Assembler', type: 'main', index: 0 }]],
+    },
+    'Run Response Assembler': {
+      main: [[{ node: 'Return Mode', type: 'main', index: 0 }]],
+    },
+    'Return Mode': {
+      main: [
+        [{ node: 'Preview Result', type: 'main', index: 0 }],
+        [{ node: 'Respond to Webhook', type: 'main', index: 0 }],
+      ],
     },
   };
 
@@ -272,7 +318,7 @@ return [
     'Office AI - Intake Router',
     nodes,
     connections,
-    'Webhook gratuito que normaliza pedidos, estima complejidad y enruta la tarea por lane rapid o deep sin usar APIs pagas.'
+    'Router gratuito con webhook y modo manual que ya llama a los tres subworkflows de Office AI sin usar APIs pagas.'
   );
 }
 
@@ -348,7 +394,17 @@ return {
 };`,
       'runOnceForEachItem'
     ),
-    waitNode('lead-brief-pause', [1320, 300], 'Short Coordination Wait', 1),
+    codeNode(
+      'mark-brief-ready',
+      [1320, 300],
+      'Mark Brief Ready',
+      `return items.map((item) => ({
+  json: {
+    ...item.json,
+    coordinationStage: 'brief-ready',
+  },
+}));`
+    ),
     codeNode(
       'finalize-brief',
       [1580, 300],
@@ -378,9 +434,9 @@ return {
       main: [[{ node: 'Draft Brief', type: 'main', index: 0 }]],
     },
     'Draft Brief': {
-      main: [[{ node: 'Short Coordination Wait', type: 'main', index: 0 }]],
+      main: [[{ node: 'Mark Brief Ready', type: 'main', index: 0 }]],
     },
-    'Short Coordination Wait': {
+    'Mark Brief Ready': {
       main: [[{ node: 'Finalize Brief', type: 'main', index: 0 }]],
     },
   };
@@ -434,7 +490,17 @@ return items.map((item) => ({
   },
 }));`
     ),
-    waitNode('specialist-pause', [1040, 300], 'Parallel Window', 1),
+    codeNode(
+      'mark-parallel-window',
+      [1040, 300],
+      'Mark Parallel Window',
+      `return items.map((item) => ({
+  json: {
+    ...item.json,
+    coordinationStage: 'parallel-window',
+  },
+}));`
+    ),
     codeNode(
       'simulate-specialist-work',
       [1300, 300],
@@ -450,6 +516,9 @@ for (const item of items) {
         lead: source.lead,
         specialist,
         task: source.task,
+        source: source.source ?? 'manual',
+        responseMode: source.responseMode ?? 'rapid',
+        lane: source.lane ?? 'rapid',
         finding: \`\${specialist} encontro una oportunidad concreta para \${source.lead}\`,
         risk: \`\${specialist} marco una dependencia a vigilar\`,
         nextStep: \`\${specialist} propone ejecutar una accion corta y medible\`,
@@ -471,6 +540,9 @@ for (const item of items) {
     groups.set(lead, {
       requestId: item.json.requestId ?? 'manual',
       lead,
+      source: item.json.source ?? 'manual',
+      responseMode: item.json.responseMode ?? 'rapid',
+      lane: item.json.lane ?? 'rapid',
       findings: [],
       risks: [],
       nextSteps: [],
@@ -506,9 +578,9 @@ return Array.from(groups.values()).map((entry) => ({
       main: [[{ node: 'Plan Specialists', type: 'main', index: 0 }]],
     },
     'Plan Specialists': {
-      main: [[{ node: 'Parallel Window', type: 'main', index: 0 }]],
+      main: [[{ node: 'Mark Parallel Window', type: 'main', index: 0 }]],
     },
-    'Parallel Window': {
+    'Mark Parallel Window': {
       main: [[{ node: 'Simulate Specialist Work', type: 'main', index: 0 }]],
     },
     'Simulate Specialist Work': {
@@ -560,12 +632,15 @@ function buildResponseAssembler() {
       [780, 300],
       'Normalize Results',
       `return items.map((item) => ({
-  json: {
-    requestId: item.json.requestId ?? 'manual',
-    lead: item.json.lead ?? 'SCOUT',
-    findings: Array.isArray(item.json.findings) ? item.json.findings : [],
-    risks: Array.isArray(item.json.risks) ? item.json.risks : [],
-    nextSteps: Array.isArray(item.json.nextSteps) ? item.json.nextSteps : [],
+    json: {
+      requestId: item.json.requestId ?? 'manual',
+      lead: item.json.lead ?? 'SCOUT',
+      source: item.json.source ?? 'manual',
+      responseMode: item.json.responseMode ?? 'rapid',
+      lane: item.json.lane ?? 'rapid',
+      findings: Array.isArray(item.json.findings) ? item.json.findings : [],
+      risks: Array.isArray(item.json.risks) ? item.json.risks : [],
+      nextSteps: Array.isArray(item.json.nextSteps) ? item.json.nextSteps : [],
     latencyMs: Number(item.json.latencyMs ?? 0),
     freeOnly: true,
   },
@@ -606,6 +681,9 @@ return [
   {
     json: {
       requestId: leadResults[0]?.requestId ?? 'manual',
+      source: leadResults[0]?.source ?? 'manual',
+      responseMode: leadResults[0]?.responseMode ?? 'rapid',
+      lane: leadResults[0]?.lane ?? 'rapid',
       leadResults,
       findings,
       risks,
@@ -626,6 +704,9 @@ return [
   {
     json: {
       requestId: data.requestId ?? 'manual',
+      source: data.source ?? 'manual',
+      responseMode: data.responseMode ?? 'rapid',
+      lane: data.lane ?? 'rapid',
       ariaSummary: \`ARIA cerro \${fronts} frente(s) de trabajo con salida gratis y orquestada\`,
       steps: data.nextSteps ?? [],
       findings: data.findings ?? [],
@@ -692,6 +773,30 @@ function writeWorkflowFiles() {
   }
 }
 
+function replaceIds(value, replacements) {
+  if (Array.isArray(value)) {
+    return value.map((item) => replaceIds(item, replacements));
+  }
+
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value).map(([key, nestedValue]) => [
+      key,
+      replaceIds(nestedValue, replacements),
+    ]);
+    return Object.fromEntries(entries);
+  }
+
+  if (typeof value === 'string' && replacements[value]) {
+    return replacements[value];
+  }
+
+  return value;
+}
+
+function materializeWorkflow(workflow, replacements = {}) {
+  return replaceIds(workflow, replacements);
+}
+
 function syncDatabase(dbPath) {
   if (!fs.existsSync(dbPath)) {
     return { dbPath, updated: 0, matchedNames: [] };
@@ -702,45 +807,87 @@ function syncDatabase(dbPath) {
   let updated = 0;
   const matchedNames = [];
 
-  for (const [name, { workflow }] of Object.entries(workflowDefinitions)) {
-    const rows = db.prepare('SELECT id, versionCounter FROM workflow_entity WHERE name = ?').all(name);
+  const rowsByName = {};
+
+  for (const name of Object.keys(workflowDefinitions)) {
+    rowsByName[name] = db
+      .prepare(
+        'SELECT id, versionCounter FROM workflow_entity WHERE name = ? ORDER BY createdAt DESC, id DESC'
+      )
+      .all(name);
+  }
+
+  function updateRow(row, workflow) {
+    db.prepare(`
+      UPDATE workflow_entity
+      SET
+        nodes = ?,
+        connections = ?,
+        settings = ?,
+        staticData = ?,
+        pinData = ?,
+        meta = ?,
+        versionId = ?,
+        versionCounter = ?,
+        description = ?,
+        updatedAt = ?,
+        active = ?
+      WHERE id = ?
+    `).run(
+      JSON.stringify(workflow.nodes),
+      JSON.stringify(workflow.connections),
+      JSON.stringify(workflow.settings ?? {}),
+      workflow.staticData === null ? null : JSON.stringify(workflow.staticData),
+      JSON.stringify(workflow.pinData ?? {}),
+      JSON.stringify(workflow.meta ?? {}),
+      crypto.randomUUID(),
+      Number(row.versionCounter ?? 1) + 1,
+      workflow.description ?? null,
+      now,
+      workflow.active ? 1 : 0,
+      row.id
+    );
+  }
+
+  for (const [name, rows] of Object.entries(rowsByName)) {
+    if (name === 'Office AI - Intake Router') {
+      continue;
+    }
+
+    const workflow = materializeWorkflow(workflowDefinitions[name].workflow);
 
     for (const row of rows) {
-      db.prepare(`
-        UPDATE workflow_entity
-        SET
-          nodes = ?,
-          connections = ?,
-          settings = ?,
-          staticData = ?,
-          pinData = ?,
-          meta = ?,
-          versionId = ?,
-          versionCounter = ?,
-          description = ?,
-          updatedAt = ?,
-          active = ?
-        WHERE id = ?
-      `).run(
-        JSON.stringify(workflow.nodes),
-        JSON.stringify(workflow.connections),
-        JSON.stringify(workflow.settings ?? {}),
-        workflow.staticData === null ? null : JSON.stringify(workflow.staticData),
-        JSON.stringify(workflow.pinData ?? {}),
-        JSON.stringify(workflow.meta ?? {}),
-        crypto.randomUUID(),
-        Number(row.versionCounter ?? 1) + 1,
-        workflow.description ?? null,
-        now,
-        workflow.active ? 1 : 0,
-        row.id
-      );
+      updateRow(row, workflow);
       updated += 1;
     }
 
     if (rows.length > 0) {
       matchedNames.push(`${name} x${rows.length}`);
     }
+  }
+
+  const routerRows = rowsByName['Office AI - Intake Router'] ?? [];
+  const leadRows = rowsByName['Office AI - Lead Brief Builder'] ?? [];
+  const specialistRows = rowsByName['Office AI - Specialist Runner'] ?? [];
+  const assemblerRows = rowsByName['Office AI - Response Assembler'] ?? [];
+
+  for (let index = 0; index < routerRows.length; index += 1) {
+    const row = routerRows[index];
+    const replacements = {
+      __LEAD_BRIEF_BUILDER_ID__: leadRows[index]?.id ?? leadRows[0]?.id ?? '',
+      __SPECIALIST_RUNNER_ID__: specialistRows[index]?.id ?? specialistRows[0]?.id ?? '',
+      __RESPONSE_ASSEMBLER_ID__: assemblerRows[index]?.id ?? assemblerRows[0]?.id ?? '',
+    };
+    const workflow = materializeWorkflow(workflowDefinitions['Office AI - Intake Router'].workflow, replacements);
+    if (!replacements.__LEAD_BRIEF_BUILDER_ID__ || !replacements.__SPECIALIST_RUNNER_ID__ || !replacements.__RESPONSE_ASSEMBLER_ID__) {
+      continue;
+    }
+    updateRow(row, workflow);
+    updated += 1;
+  }
+
+  if (routerRows.length > 0) {
+    matchedNames.push(`Office AI - Intake Router x${routerRows.length}`);
   }
 
   return { dbPath, updated, matchedNames };

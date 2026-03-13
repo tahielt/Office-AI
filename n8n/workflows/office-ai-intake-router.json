@@ -17,6 +17,31 @@
       ]
     },
     {
+      "parameters": {},
+      "id": "manual-intake",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        440
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [\n  {\n    json: {\n      prompt: 'Investiga competidores, revisa el backend y converti el flujo a n8n gratis',\n      source: 'manual',\n      requestId: 'manual-' + Date.now(),\n    },\n  },\n];"
+      },
+      "id": "sample-intake-request",
+      "name": "Sample Intake Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        440
+      ]
+    },
+    {
       "parameters": {
         "mode": "runOnceForAllItems",
         "jsCode": "const input = items[0]?.json ?? {};\nconst payload = input.body && typeof input.body === 'object' ? input.body : input;\nconst prompt = [payload.prompt, payload.task, payload.message, payload.text]\n  .find((value) => typeof value === 'string' && value.trim()) ?? 'Analizar la tarea actual de Office AI';\nconst requested = String(prompt).toLowerCase();\nconst mentionMap = {\n  scout: 'SCOUT',\n  apex: 'APEX',\n  zion: 'ZION',\n  forge: 'FORGE',\n  echo: 'ECHO',\n  vera: 'VERA',\n  vox: 'VOX',\n};\nconst mentionedAgents = Object.entries(mentionMap)\n  .filter(([token]) => requested.includes(token))\n  .map(([, agent]) => agent);\nconst inferredAgents = [];\nif (/investig|compet|mercado|tendencia|web/.test(requested)) inferredAgents.push('SCOUT');\nif (/repo|backend|codigo|arquitect|bug|infra/.test(requested)) inferredAgents.push('APEX');\nif (/estrateg|growth|negocio|roadmap|plan/.test(requested)) inferredAgents.push('ZION');\nif (/workflow|automat|n8n|deploy|implement/.test(requested)) inferredAgents.push('FORGE');\nconst leadAgents = [...new Set([...mentionedAgents, ...inferredAgents])].slice(0, 3);\nconst complexityScore =\n  prompt.length +\n  leadAgents.length * 35 +\n  (/profundo|deep|completo|detallado/.test(requested) ? 80 : 0);\nconst responseMode = complexityScore >= 160 ? 'deep' : 'rapid';\nreturn [\n  {\n    json: {\n      requestId: payload.requestId ?? 'req-' + Date.now(),\n      task: prompt,\n      leadAgents: leadAgents.length ? leadAgents : ['SCOUT'],\n      source: payload.source ?? 'webhook',\n      freeOnly: true,\n      complexityScore,\n      responseMode,\n      maxLatencyMs: responseMode === 'rapid' ? 2500 : 4500,\n    },\n  },\n];"
@@ -26,8 +51,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        520,
-        260
+        780,
+        340
       ]
     },
     {
@@ -41,8 +66,8 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.4,
       "position": [
-        800,
-        260
+        1060,
+        340
       ]
     },
     {
@@ -50,19 +75,19 @@
         "assignments": {
           "assignments": [
             {
-              "id": "lane-b1c5fddd",
+              "id": "lane-e7ae9b6b",
               "name": "lane",
               "value": "rapid",
               "type": "string"
             },
             {
-              "id": "targetLatencyMs-699e398a",
+              "id": "targetLatencyMs-b4af49ca",
               "name": "targetLatencyMs",
               "value": 2500,
               "type": "number"
             },
             {
-              "id": "handoffPlan-10e72a5d",
+              "id": "handoffPlan-ed08e636",
               "name": "handoffPlan",
               "value": "brief-builder -> specialist-runner -> compact-assembler",
               "type": "string"
@@ -76,8 +101,8 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        1080,
-        180
+        1340,
+        240
       ]
     },
     {
@@ -85,19 +110,19 @@
         "assignments": {
           "assignments": [
             {
-              "id": "lane-b37a55e8",
+              "id": "lane-3b6bab5d",
               "name": "lane",
               "value": "deep",
               "type": "string"
             },
             {
-              "id": "targetLatencyMs-4c7b1646",
+              "id": "targetLatencyMs-6195c503",
               "name": "targetLatencyMs",
               "value": 4500,
               "type": "number"
             },
             {
-              "id": "handoffPlan-b5a906e8",
+              "id": "handoffPlan-e2cc8b69",
               "name": "handoffPlan",
               "value": "brief-builder -> specialist-runner -> full-assembler",
               "type": "string"
@@ -111,22 +136,106 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        1080,
+        1340,
+        440
+      ]
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": "__LEAD_BRIEF_BUILDER_ID__",
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "run-lead-brief-builder",
+      "name": "Run Lead Brief Builder",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1620,
         340
       ]
     },
     {
       "parameters": {
-        "mode": "runOnceForAllItems",
-        "jsCode": "const current = items[0]?.json ?? {};\nconst leadAgents = Array.isArray(current.leadAgents) ? current.leadAgents : [];\nconst leadCount = Math.min(leadAgents.length || 1, 3);\nreturn [\n  {\n    json: {\n      ...current,\n      leadCount,\n      summary: `ARIA envio la tarea por la lane ${current.lane} con ${leadCount} lead(s)`,\n      stages: ['intake-router', 'lead-brief-builder', 'specialist-runner', 'response-assembler'],\n    },\n  },\n];"
+        "source": "database",
+        "workflowId": "__SPECIALIST_RUNNER_ID__",
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
       },
-      "id": "finalize-route",
-      "name": "Finalize Route",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
+      "id": "run-specialist-runner",
+      "name": "Run Specialist Runner",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
       "position": [
-        1350,
-        260
+        1900,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": "__RESPONSE_ASSEMBLER_ID__",
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "run-response-assembler",
+      "name": "Run Response Assembler",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        2180,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{$json.source === 'webhook' ? 1 : 0}}"
+      },
+      "id": "return-mode",
+      "name": "Return Mode",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        2460,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "resultMode-9d0c90c6",
+              "name": "resultMode",
+              "value": "manual-preview",
+              "type": "string"
+            },
+            {
+              "id": "summarySource-04d0e05b",
+              "name": "summarySource",
+              "value": "n8n-office-router",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true
+      },
+      "id": "preview-result",
+      "name": "Preview Result",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2740,
+        240
       ]
     },
     {
@@ -138,13 +247,35 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
       "position": [
-        1600,
-        260
+        2740,
+        440
       ]
     }
   ],
   "connections": {
     "Office Intake Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize Intake",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Sample Intake Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sample Intake Request": {
       "main": [
         [
           {
@@ -188,7 +319,7 @@
       "main": [
         [
           {
-            "node": "Finalize Route",
+            "node": "Run Lead Brief Builder",
             "type": "main",
             "index": 0
           }
@@ -199,15 +330,55 @@
       "main": [
         [
           {
-            "node": "Finalize Route",
+            "node": "Run Lead Brief Builder",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Finalize Route": {
+    "Run Lead Brief Builder": {
       "main": [
+        [
+          {
+            "node": "Run Specialist Runner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Specialist Runner": {
+      "main": [
+        [
+          {
+            "node": "Run Response Assembler",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Response Assembler": {
+      "main": [
+        [
+          {
+            "node": "Return Mode",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Return Mode": {
+      "main": [
+        [
+          {
+            "node": "Preview Result",
+            "type": "main",
+            "index": 0
+          }
+        ],
         [
           {
             "node": "Respond to Webhook",
@@ -228,5 +399,5 @@
     "officeAiFreeOnly": true
   },
   "active": false,
-  "description": "Webhook gratuito que normaliza pedidos, estima complejidad y enruta la tarea por lane rapid o deep sin usar APIs pagas."
+  "description": "Router gratuito con webhook y modo manual que ya llama a los tres subworkflows de Office AI sin usar APIs pagas."
 }

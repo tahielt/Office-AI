@@ -69,14 +69,13 @@
     },
     {
       "parameters": {
-        "resume": "timeInterval",
-        "amount": 1,
-        "unit": "seconds"
+        "mode": "runOnceForAllItems",
+        "jsCode": "return items.map((item) => ({\n  json: {\n    ...item.json,\n    coordinationStage: 'brief-ready',\n  },\n}));"
       },
-      "id": "lead-brief-pause",
-      "name": "Short Coordination Wait",
-      "type": "n8n-nodes-base.wait",
-      "typeVersion": 1.1,
+      "id": "mark-brief-ready",
+      "name": "Mark Brief Ready",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         1320,
         300
@@ -146,14 +145,14 @@
       "main": [
         [
           {
-            "node": "Short Coordination Wait",
+            "node": "Mark Brief Ready",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Short Coordination Wait": {
+    "Mark Brief Ready": {
       "main": [
         [
           {

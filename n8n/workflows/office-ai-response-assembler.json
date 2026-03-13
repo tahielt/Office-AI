@@ -42,7 +42,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "return items.map((item) => ({\n  json: {\n    requestId: item.json.requestId ?? 'manual',\n    lead: item.json.lead ?? 'SCOUT',\n    findings: Array.isArray(item.json.findings) ? item.json.findings : [],\n    risks: Array.isArray(item.json.risks) ? item.json.risks : [],\n    nextSteps: Array.isArray(item.json.nextSteps) ? item.json.nextSteps : [],\n    latencyMs: Number(item.json.latencyMs ?? 0),\n    freeOnly: true,\n  },\n}));"
+        "jsCode": "return items.map((item) => ({\n    json: {\n      requestId: item.json.requestId ?? 'manual',\n      lead: item.json.lead ?? 'SCOUT',\n      source: item.json.source ?? 'manual',\n      responseMode: item.json.responseMode ?? 'rapid',\n      lane: item.json.lane ?? 'rapid',\n      findings: Array.isArray(item.json.findings) ? item.json.findings : [],\n      risks: Array.isArray(item.json.risks) ? item.json.risks : [],\n      nextSteps: Array.isArray(item.json.nextSteps) ? item.json.nextSteps : [],\n    latencyMs: Number(item.json.latencyMs ?? 0),\n    freeOnly: true,\n  },\n}));"
       },
       "id": "normalize-results",
       "name": "Normalize Results",
@@ -56,7 +56,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const seen = new Set();\nconst leadResults = items.map((item) => item.json);\nconst findings = [];\nconst risks = [];\nconst nextSteps = [];\nlet latencyMs = 0;\nfor (const result of leadResults) {\n  latencyMs += Number(result.latencyMs ?? 0);\n  for (const finding of result.findings) {\n    if (!seen.has('f:' + finding)) {\n      seen.add('f:' + finding);\n      findings.push(finding);\n    }\n  }\n  for (const risk of result.risks) {\n    if (!seen.has('r:' + risk)) {\n      seen.add('r:' + risk);\n      risks.push(risk);\n    }\n  }\n  for (const step of result.nextSteps) {\n    if (!seen.has('s:' + step)) {\n      seen.add('s:' + step);\n      nextSteps.push(step);\n    }\n  }\n}\nreturn [\n  {\n    json: {\n      requestId: leadResults[0]?.requestId ?? 'manual',\n      leadResults,\n      findings,\n      risks,\n      nextSteps,\n      latencyMs,\n      freeOnly: true,\n    },\n  },\n];"
+        "jsCode": "const seen = new Set();\nconst leadResults = items.map((item) => item.json);\nconst findings = [];\nconst risks = [];\nconst nextSteps = [];\nlet latencyMs = 0;\nfor (const result of leadResults) {\n  latencyMs += Number(result.latencyMs ?? 0);\n  for (const finding of result.findings) {\n    if (!seen.has('f:' + finding)) {\n      seen.add('f:' + finding);\n      findings.push(finding);\n    }\n  }\n  for (const risk of result.risks) {\n    if (!seen.has('r:' + risk)) {\n      seen.add('r:' + risk);\n      risks.push(risk);\n    }\n  }\n  for (const step of result.nextSteps) {\n    if (!seen.has('s:' + step)) {\n      seen.add('s:' + step);\n      nextSteps.push(step);\n    }\n  }\n}\nreturn [\n  {\n    json: {\n      requestId: leadResults[0]?.requestId ?? 'manual',\n      source: leadResults[0]?.source ?? 'manual',\n      responseMode: leadResults[0]?.responseMode ?? 'rapid',\n      lane: leadResults[0]?.lane ?? 'rapid',\n      leadResults,\n      findings,\n      risks,\n      nextSteps,\n      latencyMs,\n      freeOnly: true,\n    },\n  },\n];"
       },
       "id": "deduplicate-findings",
       "name": "Deduplicate Findings",
@@ -70,7 +70,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const data = items[0]?.json ?? {};\nconst fronts = Array.isArray(data.leadResults) ? data.leadResults.length : 0;\nreturn [\n  {\n    json: {\n      requestId: data.requestId ?? 'manual',\n      ariaSummary: `ARIA cerro ${fronts} frente(s) de trabajo con salida gratis y orquestada`,\n      steps: data.nextSteps ?? [],\n      findings: data.findings ?? [],\n      risks: data.risks ?? [],\n      sources: [],\n      latencyMs: data.latencyMs ?? 0,\n      freeOnly: true,\n    },\n  },\n];"
+        "jsCode": "const data = items[0]?.json ?? {};\nconst fronts = Array.isArray(data.leadResults) ? data.leadResults.length : 0;\nreturn [\n  {\n    json: {\n      requestId: data.requestId ?? 'manual',\n      source: data.source ?? 'manual',\n      responseMode: data.responseMode ?? 'rapid',\n      lane: data.lane ?? 'rapid',\n      ariaSummary: `ARIA cerro ${fronts} frente(s) de trabajo con salida gratis y orquestada`,\n      steps: data.nextSteps ?? [],\n      findings: data.findings ?? [],\n      risks: data.risks ?? [],\n      sources: [],\n      latencyMs: data.latencyMs ?? 0,\n      freeOnly: true,\n    },\n  },\n];"
       },
       "id": "compose-aria-summary",
       "name": "Compose ARIA Summary",
