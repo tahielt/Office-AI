@@ -16,21 +16,12 @@ Frontend y backend de la oficina de agentes. Este repositorio queda listo para s
   - `ECHO`: comunicaciones.
   - `VOX`: contenido.
 
-## Que NO contiene este repo
-
-- Base de datos de `n8n`.
-- Configuracion privada de `n8n`.
-- Workflows privados exportados.
-- Scripts de backup y operacion de la infraestructura.
-
-Esa parte vive en el repo privado hermano `OrqVault`.
-
 ## Arquitectura
 
 1. El usuario habla con `ARIA` desde la UI.
 2. `ARIA` clasifica la intencion y delega al especialista.
 3. Cada especialista trabaja con su propio squad interno.
-4. `SCOUT` investiga web, `APEX` usa contexto del repo, `FORGE` prepara automatizacion.
+4. `SCOUT` hace investiga web, `APEX` usa contexto del repo, `FORGE` prepara la automatizacion.
 5. La respuesta vuelve a la terminal con pasos por agente y trazabilidad.
 
 ## Stack local
@@ -40,16 +31,6 @@ Esa parte vive en el repo privado hermano `OrqVault`.
 - TypeScript
 - AI SDK 6
 - Ollama para modelos locales
-
-## Variables recomendadas
-
-Archivo local no versionado: `.env.local`
-
-```env
-AI_PROVIDER=ollama
-OLLAMA_URL=http://127.0.0.1:11434
-OLLAMA_MODEL=qwen2.5:7b
-```
 
 ## Arranque local
 
@@ -86,22 +67,4 @@ http://127.0.0.1:3000
 - `/summon_all`
 - `/dismiss`
 
-## Estructura principal
 
-- `src/app/page.tsx`: layout general.
-- `src/app/api/orchestrator/route.ts`: cerebro del backend.
-- `src/hooks/useAgents.ts`: estado y logs de los agentes.
-- `src/lib/agents.ts`: roster principal.
-- `src/lib/agentTeams.ts`: squads internos.
-- `src/components/ui/*`: tablero, terminal y sidebar.
-
-## Relacion con OrqVault
-
-Si queres automatizaciones reales con `n8n`, webhooks privados y backups, usa el repo hermano:
-
-`C:\Users\mocha\Documents\VDM 2026\OrqVault`
-
-La idea es:
-
-- `Office-AI`: repo publicable y deployable.
-- `OrqVault`: repo privado con workflows e infraestructura local.
