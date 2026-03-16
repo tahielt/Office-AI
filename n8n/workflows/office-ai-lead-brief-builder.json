@@ -28,7 +28,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "return [\n  {\n    json: {\n      requestId: 'manual-office-ai',\n      task: 'Investigar competidores y revisar la arquitectura de Office AI',\n      responseMode: 'rapid',\n      leadAgents: ['SCOUT', 'APEX', 'ZION'],\n      freeOnly: true,\n    },\n  },\n];"
+        "jsCode": "return [\n  {\n    json: {\n      requestId: 'manual-office-ai',\n      task: 'Entro un lead de Estudio Delta. Investiga el contexto, defini la oportunidad y deja listo un primer mensaje comercial junto con el siguiente paso del piloto.',\n      accountName: 'Estudio Delta',\n      website: 'https://estudiodelta.example',\n      painPoint: 'responden leads a mano y pierden seguimiento durante la primera hora',\n      goal: 'salir con un primer mensaje comercial y un piloto alpha apoyado en n8n',\n      channel: 'linkedin',\n      requestedDeliverable: 'first-message',\n      deliverableLabel: 'primer mensaje comercial',\n      responseMode: 'rapid',\n      leadAgents: ['SCOUT', 'ZION', 'ECHO'],\n      freeOnly: true,\n    },\n  },\n];"
       },
       "id": "sample-lead-input",
       "name": "Sample Lead Input",
@@ -56,7 +56,7 @@
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "const lead = $json.lead ?? 'SCOUT';\nconst task = $json.task ?? 'Resolver una tarea';\nconst objectiveMap = {\n  SCOUT: 'Buscar informacion publica y validar supuestos',\n  APEX: 'Auditar arquitectura, codigo y riesgos tecnicos',\n  ZION: 'Definir enfoque estrategico y prioridades',\n  FORGE: 'Bajar implementacion operativa y workflow',\n  ECHO: 'Sintetizar hallazgos y narrativa',\n  VERA: 'Ordenar riesgos, compliance y claridad',\n  VOX: 'Adaptar salida para comunicacion externa',\n};\nreturn {\n  json: {\n    ...$json,\n    objective: objectiveMap[lead] ?? 'Resolver la tarea asignada',\n    contextBudget: $json.responseMode === 'deep' ? 'medium' : 'tight',\n    constraints: [\n      'usar solo nodos gratis de n8n',\n      'no depender de APIs pagas',\n      'priorizar respuestas cortas y accionables',\n    ],\n    deliverables: [\n      '3 hallazgos',\n      '2 riesgos',\n      '2 proximos pasos',\n    ],\n    task,\n  },\n};"
+        "jsCode": "const lead = $json.lead ?? 'SCOUT';\nconst task = $json.task ?? 'Resolver una tarea';\nconst accountName = $json.accountName ?? 'Lead alpha';\nconst channel = $json.channel ?? 'email';\nconst deliverableLabel = $json.deliverableLabel ?? 'salida accionable';\nconst objectiveMap = {\n  SCOUT: 'Buscar informacion publica y validar supuestos',\n  APEX: 'Auditar arquitectura, codigo y riesgos tecnicos',\n  ZION: 'Definir enfoque estrategico y prioridades',\n  FORGE: 'Bajar implementacion operativa y workflow',\n  ECHO: 'Sintetizar hallazgos y narrativa',\n  VERA: 'Ordenar riesgos, compliance y claridad',\n  VOX: 'Adaptar salida para comunicacion externa',\n};\nreturn {\n  json: {\n    ...$json,\n    objective: objectiveMap[lead] ?? 'Resolver la tarea asignada',\n    contextBudget: $json.responseMode === 'deep' ? 'medium' : 'tight',\n    constraints: [\n      'usar solo nodos gratis de n8n',\n      'no depender de APIs pagas',\n      'priorizar respuestas cortas y accionables',\n    ],\n    deliverables: [\n      '3 hallazgos sobre ' + accountName,\n      '2 riesgos para ' + deliverableLabel,\n      '1 siguiente accion por ' + channel,\n    ],\n    accountName,\n    channel,\n    deliverableLabel,\n    task,\n  },\n};"
       },
       "id": "draft-brief",
       "name": "Draft Brief",
@@ -84,7 +84,7 @@
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "return {\n  json: {\n    ...$json,\n    briefSummary: `${$json.lead}: ${$json.objective}. Contexto ${$json.contextBudget}. Entrega: ${$json.deliverables.join(', ')}`,\n    readyForSpecialists: true,\n  },\n};"
+        "jsCode": "return {\n  json: {\n    ...$json,\n    briefSummary: $json.lead + ': ' + $json.objective + '. Cuenta ' + ($json.accountName ?? 'Lead alpha') + '. Canal ' + ($json.channel ?? 'email') + '. Entrega: ' + ($json.deliverableLabel ?? 'salida accionable') + '. Contexto ' + $json.contextBudget + '.',\n    readyForSpecialists: true,\n  },\n};"
       },
       "id": "finalize-brief",
       "name": "Finalize Brief",

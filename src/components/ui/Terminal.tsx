@@ -306,11 +306,13 @@ export default function Terminal({ agents, teamModeEnabled, onCommand }: Props) 
             {[
               { cmd: "/team_mode", label: "Agents Team" },
               { cmd: "/dismiss", label: "Reset visual" },
+              { cmd: "@aria activa a @zion y @echo para definir la oferta alpha de este orquestador y un mensaje comercial corto", label: "Oferta alpha" },
+              { cmd: "@aria activa a @scout, @zion y @echo para investigar un prospecto y redactar un mensaje de entrada", label: "Prospeccion" },
+              { cmd: "@aria activa a @forge, @apex y @zion para convertir este alpha en una demo funcional con n8n", label: "Demo n8n" },
               { cmd: "@aria decile a @scout que investigue competencia", label: "Scout" },
               { cmd: "@aria pedile a @apex que revise el backend", label: "Apex" },
               { cmd: "@aria activa a @scout y @zion para investigar y definir estrategia", label: "2 Agentes" },
               { cmd: "@aria activa a @scout, @zion y @forge para investigar, definir estrategia y bajar un workflow", label: "3 Agentes" },
-              { cmd: "@aria pedile a @forge fragmentar el flujo de n8n para responder mas rapido", label: "n8n Fast Lane" },
             ].map(({ cmd, label }) => (
               <button
                 key={cmd}

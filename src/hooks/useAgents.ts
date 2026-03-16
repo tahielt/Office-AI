@@ -27,12 +27,38 @@ type OrchestratorErrorPayload = {
   error?: string;
 };
 
+type OrchestratorStructuredOutput = {
+  summary: string;
+  evidence: Array<{
+    title: string;
+    claim: string;
+    url?: string;
+    snippet?: string;
+  }>;
+  risks: string[];
+  nextSteps: string[];
+  artifacts: Array<{
+    kind: string;
+    title: string;
+    content: string;
+  }>;
+};
+
+type OrchestratorStepTracePayload = {
+  startedAt: string;
+  completedAt: string;
+  durationMs: number;
+};
+
 type OrchestratorStepPayload = {
   agentId: string;
   task: string;
   thought: string;
   message: string;
   provider: string;
+  runId?: string;
+  output?: OrchestratorStructuredOutput;
+  trace?: OrchestratorStepTracePayload;
   teamAssignments?: TeamAssignment[];
   teamModeUsed?: boolean;
   lane?: AgentLane;
@@ -48,7 +74,44 @@ type OrchestratorStepPayload = {
 };
 
 type OrchestratorSuccessPayload = {
+  runId?: string;
   steps?: OrchestratorStepPayload[];
+  trace?: {
+    runId: string;
+    task: string;
+    delegatedAgents: string[];
+    mode: "delegated" | "direct";
+    startedAt: string;
+    completedAt: string;
+    totalDurationMs: number;
+    steps: Array<{
+      agentId: string;
+      provider: string;
+      durationMs: number;
+      lane?: AgentLane;
+      statusDetail?: string;
+    }>;
+  };
+};
+
+type N8nDemoErrorPayload = {
+  error?: string;
+  webhookUrl?: string;
+};
+
+type N8nDemoSuccessPayload = {
+  ok?: boolean;
+  webhookUrl?: string;
+  summary?: string;
+  result?: {
+    ariaSummary?: string;
+    clientReadyOutput?: {
+      deliverable?: string;
+      channel?: string;
+      firstAction?: string;
+    };
+    suggestedPilot?: string;
+  };
 };
 
 function normalizeTargetId(rawId: string | null, agents: Agent[]) {
@@ -117,10 +180,38 @@ function getAgentExecutionState(agentId: string, hasMultipleSpecialists: boolean
   return EXECUTION_STATE[agentId] ?? { status: "thinking" as AgentStatus, animation: "thinking" as AgentAnimation };
 }
 
+function buildN8nDemoSummary(payload: N8nDemoSuccessPayload | null) {
+  if (!payload) return "n8n devolvio una respuesta vacia.";
+
+  const lines: string[] = [];
+
+  if (payload.summary?.trim()) {
+    lines.push(payload.summary.trim());
+  }
+
+  const clientReady = payload.result?.clientReadyOutput;
+  if (clientReady) {
+    const deliverable = clientReady.deliverable || "salida";
+    const channel = clientReady.channel || "canal";
+    const firstAction = clientReady.firstAction || "validar siguiente paso";
+    lines.push(`Listo para ${channel}: ${deliverable}.`);
+    lines.push(`Siguiente accion: ${firstAction}.`);
+  }
+
+  if (payload.result?.suggestedPilot?.trim()) {
+    lines.push(payload.result.suggestedPilot.trim());
+  }
+
+  return lines.join("\n").trim() || "n8n respondio correctamente.";
+}
+
 export function useAgents() {
   const [agents, setAgents] = useState<Agent[]>(INITIAL_AGENTS);
   const [metrics, setMetrics] = useState<SystemMetrics>(getInitialMetrics());
   const [teamModeEnabled, setTeamModeEnabled] = useState(true);
+  const [n8nDemoStatus, setN8nDemoStatus] = useState<"idle" | "running" | "success" | "error">("idle");
+  const [n8nDemoMessage, setN8nDemoMessage] = useState<string | null>(null);
+  const [orchestratorRefreshKey, setOrchestratorRefreshKey] = useState(0);
 
   const handleCommand = useCallback(async (cmd: string) => {
     const trimmedCommand = cmd.trim();
@@ -174,6 +265,9 @@ export function useAgents() {
       setMetrics((prev) => ({ ...prev, activeTasks: 0 }));
       return;
     }
+
+    setN8nDemoStatus("idle");
+    setN8nDemoMessage(null);
 
     setAgents((prev) =>
       prev.map((agent) => {
@@ -245,25 +339,31 @@ export function useAgents() {
 
           const latestStep = matchingSteps[matchingSteps.length - 1];
           const state = getAgentExecutionState(agent.id, specialistCount > 1);
-          const entries = matchingSteps.flatMap((step) => {
-            const logs = [];
-            if (step.teamModeUsed && step.teamAssignments?.length && agent.id === "aria") {
-              logs.push(createLog("system", compactTeamSummary(step.teamAssignments)));
-            }
-            if (step.statusDetail && agent.id === "aria") {
-              logs.push(createLog("system", step.statusDetail));
-            }
-            if (step.handoffTargets?.length && agent.id === "aria") {
-              logs.push(createLog("system", `Handoff activo: ${step.handoffTargets.join(", ")}`));
-            }
-            if (step.sources?.length && agent.id === "aria") {
-              logs.push(createLog("system", `${Math.min(step.sources.length, 4)} fuentes verificadas.`));
-            }
-            if (step.message.trim()) {
-              logs.push(createLog("communication", step.message.trim()));
-            }
-            return logs;
-          });
+          const entries = [
+            ...(agent.id === "aria" && payload?.runId ? [createLog("system", `RUN ${payload.runId}`)] : []),
+            ...(agent.id === "aria" && payload?.trace?.totalDurationMs
+              ? [createLog("system", `TRACE ${payload.trace.mode.toUpperCase()} ${payload.trace.totalDurationMs}ms`)]
+              : []),
+            ...matchingSteps.flatMap((step) => {
+              const logs = [];
+              if (step.teamModeUsed && step.teamAssignments?.length && agent.id === "aria") {
+                logs.push(createLog("system", compactTeamSummary(step.teamAssignments)));
+              }
+              if (step.statusDetail && agent.id === "aria") {
+                logs.push(createLog("system", step.statusDetail));
+              }
+              if (step.handoffTargets?.length && agent.id === "aria") {
+                logs.push(createLog("system", `Handoff activo: ${step.handoffTargets.join(", ")}`));
+              }
+              if (step.sources?.length && agent.id === "aria") {
+                logs.push(createLog("system", `${Math.min(step.sources.length, 4)} fuentes verificadas.`));
+              }
+              if (step.message.trim()) {
+                logs.push(createLog("communication", step.message.trim()));
+              }
+              return logs;
+            }),
+          ];
 
           const nextAgent = appendAgentLogs(
             {
@@ -306,8 +406,197 @@ export function useAgents() {
       );
 
       setMetrics((prev) => ({ ...prev, activeTasks: 0 }));
+    } finally {
+      setOrchestratorRefreshKey((prev) => prev + 1);
     }
   }, [agents, teamModeEnabled]);
 
-  return { agents, metrics, teamModeEnabled, handleCommand };
+  const handleN8nDemo = useCallback(async () => {
+    setN8nDemoStatus("running");
+    setN8nDemoMessage("Disparando webhook local hacia office-ai/intake...");
+
+    setAgents((prev) =>
+      prev.map((agent) => {
+        const standbyAgent = buildStandbyAgent(agent);
+
+        if (agent.id === "aria") {
+          return appendAgentLogs(
+            {
+              ...standbyAgent,
+              status: "meeting",
+              animation: "talking",
+              zone: "collab",
+              statusDetail: "N8N DEMO LIVE",
+              currentTask: "Coordinando la demo real de lead intake con n8n...",
+            },
+            [createLog("system", "N8N DEMO LIVE"), createLog("communication", "Disparando el piloto real hacia office-ai/intake.")]
+          );
+        }
+
+        if (agent.id === "forge") {
+          return appendAgentLogs(
+            {
+              ...standbyAgent,
+              status: "running",
+              animation: "typing",
+              isSummoned: true,
+              zone: "collab",
+              lane: "alpha",
+              interactionTargetId: "aria",
+              statusDetail: "WEBHOOK LIVE",
+              currentTask: "Ejecutando webhook local y esperando respuesta de n8n.",
+            },
+            [createLog("system", "POST office-ai/intake")]
+          );
+        }
+
+        if (agent.id === "echo") {
+          return {
+            ...standbyAgent,
+            status: "thinking",
+            animation: "talking",
+            isSummoned: true,
+            zone: "collab",
+            lane: "beta",
+            interactionTargetId: "aria",
+            statusDetail: "CLIENT OUTPUT",
+            currentTask: "Preparando la salida comercial si n8n responde bien.",
+          };
+        }
+
+        return standbyAgent;
+      })
+    );
+
+    setMetrics((prev) => ({
+      ...prev,
+      activeTasks: 3,
+      requestsPerMin: prev.requestsPerMin + 1,
+    }));
+
+    try {
+      const res = await fetch("/api/n8n-demo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const payload = (await res.json().catch(() => null)) as (N8nDemoSuccessPayload & N8nDemoErrorPayload) | null;
+
+      if (!res.ok) {
+        throw new Error(payload?.error || "No pude ejecutar la demo de n8n");
+      }
+
+      const summary = buildN8nDemoSummary(payload);
+      const webhookUrl = payload?.webhookUrl || "http://127.0.0.1:5678/webhook/office-ai/intake";
+
+      setN8nDemoStatus("success");
+      setN8nDemoMessage(summary);
+
+      setAgents((prev) =>
+        prev.map((agent) => {
+          const standbyAgent = buildStandbyAgent(agent);
+
+          if (agent.id === "aria") {
+            return appendAgentLogs(
+              {
+                ...standbyAgent,
+                status: "meeting",
+                animation: "talking",
+                zone: "collab",
+                statusDetail: "N8N RESPONDIO",
+                currentTask: "Cerrando la demo real de lead intake.",
+              },
+              [
+                createLog("system", `Webhook OK: ${webhookUrl}`),
+                createLog("communication", summary),
+              ]
+            );
+          }
+
+          if (agent.id === "forge") {
+            return appendAgentLogs(
+              {
+                ...standbyAgent,
+                status: "running",
+                animation: "typing",
+                isSummoned: true,
+                zone: "collab",
+                lane: "alpha",
+                interactionTargetId: "aria",
+                statusDetail: "WEBHOOK OK",
+                currentTask: "n8n devolvio respuesta y el piloto quedo conectado.",
+                tasksCompleted: agent.tasksCompleted + 1,
+              },
+              [createLog("communication", "Webhook ejecutado y sincronizado con la demo de Office AI.")]
+            );
+          }
+
+          if (agent.id === "echo") {
+            return appendAgentLogs(
+              {
+                ...standbyAgent,
+                status: "thinking",
+                animation: "talking",
+                isSummoned: true,
+                zone: "collab",
+                lane: "beta",
+                interactionTargetId: "aria",
+                statusDetail: "OUTPUT LISTO",
+                currentTask: "Mostrando la salida comercial que devolvio n8n.",
+                tasksCompleted: agent.tasksCompleted + 1,
+              },
+              [createLog("communication", summary)]
+            );
+          }
+
+          return standbyAgent;
+        })
+      );
+
+      setMetrics((prev) => ({
+        ...prev,
+        activeTasks: 3,
+        totalTasks: prev.totalTasks + 2,
+        tokensTotal: prev.tokensTotal + Math.ceil(summary.length / 4),
+      }));
+    } catch (error: unknown) {
+      const message = getErrorMessage(error, "No pude ejecutar la demo de n8n");
+
+      setN8nDemoStatus("error");
+      setN8nDemoMessage(message);
+
+      setAgents((prev) =>
+        prev.map((agent) => {
+          const standbyAgent = buildStandbyAgent(agent);
+
+          if (agent.id === "aria") {
+            return appendAgentLogs(standbyAgent, [createLog("system", `ERROR N8N: ${message}`)]);
+          }
+
+          if (agent.id === "forge") {
+            return appendAgentLogs(
+              {
+                ...standbyAgent,
+                status: "running",
+                animation: "typing",
+                isSummoned: true,
+                zone: "collab",
+                lane: "alpha",
+                interactionTargetId: "aria",
+                statusDetail: "WEBHOOK FAIL",
+                currentTask: "La conexion con n8n fallo. Revisar instancia local y webhook.",
+              },
+              [createLog("system", message)]
+            );
+          }
+
+          return standbyAgent;
+        })
+      );
+
+      setMetrics((prev) => ({ ...prev, activeTasks: 1 }));
+    }
+  }, []);
+
+  return { agents, metrics, teamModeEnabled, orchestratorRefreshKey, handleCommand, handleN8nDemo, n8nDemoStatus, n8nDemoMessage };
 }

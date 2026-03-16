@@ -11,5 +11,7 @@ Comandos:
 - `npm run n8n:import` importa los workflows versionados a la instancia local del repo
 - `npm run n8n` levanta `n8n` usando la misma instancia local
 - `npm run n8n:where` te muestra rápido dónde están los JSON y cuál es la base local
+- `npm run n8n:sync:office` regenera y reinyecta los 4 workflows de Office AI
+- `npm run n8n:demo` imprime el payload y el comando para correr la demo alpha de lead intake
 
 Si corrés `npx n8n` a secas, `n8n` usará su carpeta por defecto del usuario y puede que no veas estos workflows.

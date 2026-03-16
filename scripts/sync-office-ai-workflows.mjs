@@ -185,7 +185,13 @@ function buildIntakeRouter() {
       `return [
   {
     json: {
-      prompt: 'Investiga competidores, revisa el backend y converti el flujo a n8n gratis',
+      prompt: 'Entro un lead de Estudio Delta. Investiga el contexto, defini la oportunidad y deja listo un primer mensaje comercial junto con el siguiente paso del piloto.',
+      companyName: 'Estudio Delta',
+      website: 'https://estudiodelta.example',
+      painPoint: 'responden leads a mano y pierden seguimiento durante la primera hora',
+      goal: 'salir con un primer mensaje comercial y un piloto alpha apoyado en n8n',
+      channel: 'linkedin',
+      requestedDeliverable: 'first-message',
       source: 'manual',
       requestId: 'manual-' + Date.now(),
     },
@@ -198,9 +204,45 @@ function buildIntakeRouter() {
       'Normalize Intake',
       `const input = items[0]?.json ?? {};
 const payload = input.body && typeof input.body === 'object' ? input.body : input;
-const prompt = [payload.prompt, payload.task, payload.message, payload.text]
-  .find((value) => typeof value === 'string' && value.trim()) ?? 'Analizar la tarea actual de Office AI';
-const requested = String(prompt).toLowerCase();
+const accountName = typeof payload.companyName === 'string' && payload.companyName.trim()
+  ? payload.companyName.trim()
+  : 'Lead alpha';
+const website = typeof payload.website === 'string' && payload.website.trim()
+  ? payload.website.trim()
+  : '';
+const painPoint = typeof payload.painPoint === 'string' && payload.painPoint.trim()
+  ? payload.painPoint.trim()
+  : '';
+const goal = typeof payload.goal === 'string' && payload.goal.trim()
+  ? payload.goal.trim()
+  : '';
+const channel = typeof payload.channel === 'string' && payload.channel.trim()
+  ? payload.channel.trim().toLowerCase()
+  : 'email';
+const requestedDeliverable = typeof payload.requestedDeliverable === 'string' && payload.requestedDeliverable.trim()
+  ? payload.requestedDeliverable.trim()
+  : 'brief';
+const deliverableLabelMap = {
+  'first-message': 'primer mensaje comercial',
+  brief: 'brief comercial',
+  'pilot-plan': 'plan piloto con n8n',
+};
+const deliverableLabel = deliverableLabelMap[requestedDeliverable] ?? requestedDeliverable;
+const promptSeed = [payload.prompt, payload.task, payload.message, payload.text]
+  .find((value) => typeof value === 'string' && value.trim());
+const structuredContext = [
+  'Cuenta: ' + accountName,
+  website ? 'Sitio: ' + website : '',
+  painPoint ? 'Dolor: ' + painPoint : '',
+  goal ? 'Objetivo: ' + goal : '',
+  'Canal: ' + channel,
+  'Entregable: ' + deliverableLabel,
+].filter(Boolean);
+const prompt = promptSeed ?? ('Analizar a ' + accountName + ' y preparar ' + deliverableLabel);
+const task = structuredContext.length > 0
+  ? prompt + '\\n' + structuredContext.join('\\n')
+  : prompt;
+const requested = String([prompt, ...structuredContext].join(' ')).toLowerCase();
 const mentionMap = {
   scout: 'SCOUT',
   apex: 'APEX',
@@ -261,7 +303,14 @@ return [
   {
     json: {
       requestId: payload.requestId ?? 'req-' + Date.now(),
-      task: prompt,
+      task,
+      accountName,
+      website,
+      painPoint,
+      goal,
+      channel,
+      requestedDeliverable,
+      deliverableLabel,
       leadAgents: leadAgents.length ? leadAgents : ['SCOUT'],
       decisionOrder: leadAgents.map((agent, index) => ({
         agent,
@@ -525,9 +574,16 @@ function buildLeadBriefBuilder() {
   {
     json: {
       requestId: 'manual-office-ai',
-      task: 'Investigar competidores y revisar la arquitectura de Office AI',
+      task: 'Entro un lead de Estudio Delta. Investiga el contexto, defini la oportunidad y deja listo un primer mensaje comercial junto con el siguiente paso del piloto.',
+      accountName: 'Estudio Delta',
+      website: 'https://estudiodelta.example',
+      painPoint: 'responden leads a mano y pierden seguimiento durante la primera hora',
+      goal: 'salir con un primer mensaje comercial y un piloto alpha apoyado en n8n',
+      channel: 'linkedin',
+      requestedDeliverable: 'first-message',
+      deliverableLabel: 'primer mensaje comercial',
       responseMode: 'rapid',
-      leadAgents: ['SCOUT', 'APEX', 'ZION'],
+      leadAgents: ['SCOUT', 'ZION', 'ECHO'],
       freeOnly: true,
     },
   },
@@ -556,6 +612,9 @@ return leadAgents.map((lead, index) => ({
       'Draft Brief',
       `const lead = $json.lead ?? 'SCOUT';
 const task = $json.task ?? 'Resolver una tarea';
+const accountName = $json.accountName ?? 'Lead alpha';
+const channel = $json.channel ?? 'email';
+const deliverableLabel = $json.deliverableLabel ?? 'salida accionable';
 const objectiveMap = {
   SCOUT: 'Buscar informacion publica y validar supuestos',
   APEX: 'Auditar arquitectura, codigo y riesgos tecnicos',
@@ -576,10 +635,13 @@ return {
       'priorizar respuestas cortas y accionables',
     ],
     deliverables: [
-      '3 hallazgos',
-      '2 riesgos',
-      '2 proximos pasos',
+      '3 hallazgos sobre ' + accountName,
+      '2 riesgos para ' + deliverableLabel,
+      '1 siguiente accion por ' + channel,
     ],
+    accountName,
+    channel,
+    deliverableLabel,
     task,
   },
 };`,
@@ -603,7 +665,7 @@ return {
       `return {
   json: {
     ...$json,
-    briefSummary: \`\${$json.lead}: \${$json.objective}. Contexto \${$json.contextBudget}. Entrega: \${$json.deliverables.join(', ')}\`,
+    briefSummary: $json.lead + ': ' + $json.objective + '. Cuenta ' + ($json.accountName ?? 'Lead alpha') + '. Canal ' + ($json.channel ?? 'email') + '. Entrega: ' + ($json.deliverableLabel ?? 'salida accionable') + '. Contexto ' + $json.contextBudget + '.',
     readyForSpecialists: true,
   },
 };`,
@@ -652,10 +714,13 @@ function buildSpecialistRunner() {
   {
     json: {
       requestId: 'manual-office-ai',
-      lead: 'FORGE',
-      task: 'Convertir la idea en un workflow operable y gratis',
+      lead: 'ECHO',
+      accountName: 'Estudio Delta',
+      channel: 'linkedin',
+      deliverableLabel: 'primer mensaje comercial',
+      task: 'Dejar listo el primer mensaje comercial y el siguiente paso del piloto alpha',
       responseMode: 'rapid',
-      briefSummary: 'FORGE: bajar implementacion y automatizacion',
+      briefSummary: 'ECHO: sintetizar la oportunidad comercial para Estudio Delta',
       freeOnly: true,
     },
   },
@@ -700,11 +765,16 @@ return items.map((item) => ({
 for (const item of items) {
   const source = item.json;
   const specialists = Array.isArray(source.specialists) ? source.specialists : [];
+  const accountName = source.accountName ?? 'Lead alpha';
+  const deliverableLabel = source.deliverableLabel ?? 'salida accionable';
   for (const specialist of specialists) {
     generated.push({
       json: {
         requestId: source.requestId,
         lead: source.lead,
+        accountName,
+        channel: source.channel ?? 'email',
+        deliverableLabel,
         specialist,
         task: source.task,
         source: source.source ?? 'manual',
@@ -714,9 +784,9 @@ for (const item of items) {
         decisionOrder: source.decisionOrder ?? [],
         cutoffReason: source.cutoffReason ?? 'fallback',
         earlyStopEligible: source.earlyStopEligible ?? false,
-        finding: \`\${specialist} encontro una oportunidad concreta para \${source.lead}\`,
-        risk: \`\${specialist} marco una dependencia a vigilar\`,
-        nextStep: \`\${specialist} propone ejecutar una accion corta y medible\`,
+        finding: specialist + ' encontro una oportunidad concreta para ' + accountName,
+        risk: specialist + ' marco una dependencia a vigilar antes de entregar ' + deliverableLabel,
+        nextStep: specialist + ' propone ejecutar una accion corta y medible para entregar ' + deliverableLabel,
         freeOnly: true,
       },
     });
@@ -735,6 +805,9 @@ for (const item of items) {
     groups.set(lead, {
       requestId: item.json.requestId ?? 'manual',
       lead,
+      accountName: item.json.accountName ?? 'Lead alpha',
+      channel: item.json.channel ?? 'email',
+      deliverableLabel: item.json.deliverableLabel ?? 'salida accionable',
       source: item.json.source ?? 'manual',
       responseMode: item.json.responseMode ?? 'rapid',
       lane: item.json.lane ?? 'rapid',
@@ -760,7 +833,8 @@ return Array.from(groups.values()).map((entry) => ({
     ...entry,
     specialistCount: entry.specialists.length,
     latencyMs: entry.specialists.length * 350,
-    leadSummary: \`\${entry.lead} consolido \${entry.specialists.length} especialista(s)\`,
+    leadSummary: entry.lead + ' consolido ' + entry.specialists.length + ' especialista(s) para ' + entry.accountName,
+    customerFacingOutput: entry.lead + ' deja un avance para ' + entry.deliverableLabel + ' via ' + entry.channel,
   },
 }));`
     ),
@@ -808,19 +882,25 @@ function buildResponseAssembler() {
     json: {
       requestId: 'manual-office-ai',
       lead: 'SCOUT',
-      findings: ['Competidor X acelera con contenido tecnico'],
-      risks: ['Falta una metrica unificada'],
-      nextSteps: ['Comparar pricing y mensajes'],
+      accountName: 'Estudio Delta',
+      channel: 'linkedin',
+      deliverableLabel: 'primer mensaje comercial',
+      findings: ['Detecto una oportunidad clara para automatizar la primera respuesta comercial'],
+      risks: ['El sitio comunica poco valor y obliga a sintetizar la propuesta con criterio'],
+      nextSteps: ['Validar mensaje inicial y CTA para Linkedin'],
       latencyMs: 900,
     },
   },
   {
     json: {
       requestId: 'manual-office-ai',
-      lead: 'FORGE',
-      findings: ['La automatizacion puede fragmentarse sin costo'],
-      risks: ['Hay que evitar duplicar bases de n8n'],
-      nextSteps: ['Unificar sync de workflows'],
+      lead: 'ECHO',
+      accountName: 'Estudio Delta',
+      channel: 'linkedin',
+      deliverableLabel: 'primer mensaje comercial',
+      findings: ['Ya hay material suficiente para redactar una salida comercial corta y accionable'],
+      risks: ['Si no se limita el alcance, el piloto puede parecer mas grande de lo que es'],
+      nextSteps: ['Enviar primer mensaje y proponer piloto alpha de 7 dias'],
       latencyMs: 1100,
     },
   },
@@ -838,6 +918,9 @@ function buildResponseAssembler() {
       json: {
         requestId: result.requestId ?? payload.requestId ?? 'manual',
         lead: result.lead ?? 'SCOUT',
+        accountName: result.accountName ?? payload.accountName ?? 'Lead alpha',
+        channel: result.channel ?? payload.channel ?? 'email',
+        deliverableLabel: result.deliverableLabel ?? payload.deliverableLabel ?? 'salida accionable',
         source: result.source ?? payload.source ?? 'manual',
         responseMode: result.responseMode ?? payload.responseMode ?? 'rapid',
         lane: result.lane ?? payload.lane ?? 'rapid',
@@ -857,6 +940,9 @@ function buildResponseAssembler() {
     json: {
       requestId: payload.requestId ?? 'manual',
       lead: payload.lead ?? 'SCOUT',
+      accountName: payload.accountName ?? 'Lead alpha',
+      channel: payload.channel ?? 'email',
+      deliverableLabel: payload.deliverableLabel ?? 'salida accionable',
       source: payload.source ?? 'manual',
       responseMode: payload.responseMode ?? 'rapid',
       lane: payload.lane ?? 'rapid',
@@ -908,6 +994,9 @@ return [
   {
     json: {
       requestId: leadResults[0]?.requestId ?? 'manual',
+      accountName: leadResults[0]?.accountName ?? 'Lead alpha',
+      channel: leadResults[0]?.channel ?? 'email',
+      deliverableLabel: leadResults[0]?.deliverableLabel ?? 'salida accionable',
       source: leadResults[0]?.source ?? 'manual',
       responseMode: leadResults[0]?.responseMode ?? 'rapid',
       lane: leadResults[0]?.lane ?? 'rapid',
@@ -931,16 +1020,23 @@ return [
       `const data = items[0]?.json ?? {};
 const fronts = Array.isArray(data.leadResults) ? data.leadResults.length : 0;
 const decisionMode = fronts <= 1 ? 'single-lead' : 'multi-lead';
+const accountName = data.accountName ?? 'Lead alpha';
+const deliverableLabel = data.deliverableLabel ?? 'salida accionable';
+const channel = data.channel ?? 'email';
+const suggestedPilot = 'Piloto alpha: ' + deliverableLabel + ' + workflow n8n + seguimiento de 7 dias';
 return [
   {
     json: {
       requestId: data.requestId ?? 'manual',
+      accountName,
+      channel,
+      deliverableLabel,
       source: data.source ?? 'manual',
       responseMode: data.responseMode ?? 'rapid',
       lane: data.lane ?? 'rapid',
       ariaSummary: fronts <= 1
-        ? 'ARIA aplico corte temprano porque un solo lead alcanzo para resolver el pedido.'
-        : \`ARIA cerro \${fronts} frente(s) de trabajo con salida gratis y orquestada\`,
+        ? 'ARIA aplico corte temprano y dejo listo ' + deliverableLabel + ' para ' + accountName + '.'
+        : 'ARIA cerro ' + fronts + ' frente(s) para ' + accountName + ' y dejo listo ' + deliverableLabel + ' con salida orquestada.',
       decisionMode,
       tieBreakerUsed: Boolean(data.tieBreakerUsed),
       tieBreakerReason: data.tieBreakerReason ?? 'not-needed',
@@ -948,6 +1044,13 @@ return [
       steps: data.nextSteps ?? [],
       findings: data.findings ?? [],
       risks: data.risks ?? [],
+      clientReadyOutput: {
+        accountName,
+        channel,
+        deliverable: deliverableLabel,
+        firstAction: data.nextSteps?.[0] ?? 'Validar el piloto con el cliente',
+      },
+      suggestedPilot,
       sources: [],
       latencyMs: data.latencyMs ?? 0,
       freeOnly: true,
