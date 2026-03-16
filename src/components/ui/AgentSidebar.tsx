@@ -2,10 +2,17 @@
 import { Agent } from "@/types/agent";
 import { STATUS_CONFIG } from "@/lib/agents";
 import { useSyncExternalStore } from "react";
+import AlphaGuideCard from "./AlphaGuideCard";
+import RunObservabilityCard from "./RunObservabilityCard";
 
 interface Props {
   agents: Agent[];
   teamModeEnabled: boolean;
+  orchestratorRefreshKey: number;
+  onRunPrompt: (prompt: string) => void;
+  onRunN8nDemo: () => void;
+  n8nDemoStatus: "idle" | "running" | "success" | "error";
+  n8nDemoMessage: string | null;
 }
 
 function subscribeToClock(onStoreChange: () => void) {
@@ -17,7 +24,15 @@ function getClockSnapshot() {
   return new Date().toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
 }
 
-export default function AgentSidebar({ agents, teamModeEnabled }: Props) {
+export default function AgentSidebar({
+  agents,
+  teamModeEnabled,
+  orchestratorRefreshKey,
+  onRunPrompt,
+  onRunN8nDemo,
+  n8nDemoStatus,
+  n8nDemoMessage,
+}: Props) {
   const time = useSyncExternalStore(subscribeToClock, getClockSnapshot, () => null);
 
   const activeCount = agents.filter(a => a.status !== "idle" && a.status !== "done").length;
@@ -60,6 +75,15 @@ export default function AgentSidebar({ agents, teamModeEnabled }: Props) {
           {time || "--:--"}
         </span>
       </div>
+
+      <AlphaGuideCard
+        onRunPrompt={onRunPrompt}
+        onRunN8nDemo={onRunN8nDemo}
+        n8nDemoStatus={n8nDemoStatus}
+        n8nDemoMessage={n8nDemoMessage}
+      />
+
+      <RunObservabilityCard refreshKey={orchestratorRefreshKey} />
 
       {/* Lista de agentes — scrolleable */}
       <div className="flex-1 flex flex-col gap-1.5 overflow-y-auto pr-0.5">

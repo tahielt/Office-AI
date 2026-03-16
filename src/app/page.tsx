@@ -6,7 +6,7 @@ import AgentSidebar from "@/components/ui/AgentSidebar";
 import Terminal from "@/components/ui/Terminal";
 
 export default function Home() {
-  const { agents, metrics, teamModeEnabled, handleCommand } = useAgents();
+  const { agents, metrics, teamModeEnabled, orchestratorRefreshKey, handleCommand, handleN8nDemo, n8nDemoStatus, n8nDemoMessage } = useAgents();
 
   return (
     <main className="h-screen w-screen flex flex-col overflow-hidden text-white font-sans text-sm"
@@ -28,7 +28,15 @@ export default function Home() {
 
           {/* Sidebar — ancho fijo */}
           <div className="p-3 pl-2 pb-0 shrink-0">
-            <AgentSidebar agents={agents} teamModeEnabled={teamModeEnabled} />
+            <AgentSidebar
+              agents={agents}
+              teamModeEnabled={teamModeEnabled}
+              orchestratorRefreshKey={orchestratorRefreshKey}
+              onRunPrompt={handleCommand}
+              onRunN8nDemo={handleN8nDemo}
+              n8nDemoStatus={n8nDemoStatus}
+              n8nDemoMessage={n8nDemoMessage}
+            />
           </div>
         </div>
 

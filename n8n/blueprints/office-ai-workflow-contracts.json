@@ -6,11 +6,19 @@
       "input": {
         "requestId": "uuid",
         "prompt": "string",
-        "teamMode": true
+        "teamMode": true,
+        "companyName": "string?",
+        "website": "string?",
+        "painPoint": "string?",
+        "goal": "string?",
+        "channel": "email|linkedin|whatsapp",
+        "requestedDeliverable": "first-message|brief|pilot-plan"
       },
       "output": {
         "requestId": "uuid",
         "task": "string",
+        "accountName": "string",
+        "deliverableLabel": "string",
         "responseMode": "rapid|deep",
         "leadAgents": ["SCOUT", "FORGE"],
         "maxLeads": 2
@@ -29,6 +37,9 @@
         "leadAgent": "string",
         "lane": "alpha|beta",
         "brief": "string",
+        "accountName": "string",
+        "channel": "string",
+        "deliverableLabel": "string",
         "contextFragments": ["string"]
       }
     },
@@ -46,6 +57,9 @@
         "leadAgent": "string",
         "lane": "alpha|beta",
         "summary": "string",
+        "accountName": "string",
+        "channel": "string",
+        "deliverableLabel": "string",
         "risks": ["string"],
         "nextSteps": ["string"],
         "sources": [
@@ -71,6 +85,12 @@
       "output": {
         "requestId": "uuid",
         "ariaSummary": "string",
+        "clientReadyOutput": {
+          "accountName": "string",
+          "channel": "string",
+          "deliverable": "string",
+          "firstAction": "string"
+        },
         "steps": [
           {
             "agentId": "string",

@@ -1,4 +1,5 @@
 import { promises as fs } from "node:fs";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 
 import { buildTeamAssignments, getTeamMembersForAgent } from "@/lib/agentTeams";
@@ -55,12 +56,55 @@ interface OllamaChatResponse {
   };
 }
 
+interface AgentEvidence {
+  title: string;
+  claim: string;
+  url?: string;
+  snippet?: string;
+}
+
+interface AgentArtifact {
+  kind: string;
+  title: string;
+  content: string;
+}
+
+interface AgentStructuredOutput {
+  summary: string;
+  evidence: AgentEvidence[];
+  risks: string[];
+  nextSteps: string[];
+  artifacts: AgentArtifact[];
+}
+
+interface AgentExecutionTrace {
+  startedAt: string;
+  completedAt: string;
+  durationMs: number;
+}
+
+interface SubAgentStep {
+  subAgentId: string;
+  subAgentName: string;
+  subAgentRole: string;
+  objective: string;
+  thought: string;
+  message: string;
+  provider: ProviderId;
+  output?: AgentStructuredOutput;
+  trace?: AgentExecutionTrace;
+}
+
 interface AgentStep {
   agentId: AgentId;
   task: string;
   thought: string;
   message: string;
   provider: ProviderId;
+  runId?: string;
+  output?: AgentStructuredOutput;
+  trace?: AgentExecutionTrace;
+  subSteps?: SubAgentStep[];
   teamAssignments?: TeamAssignment[];
   teamModeUsed?: boolean;
   lane?: AgentLane;
@@ -75,6 +119,71 @@ interface RoutePlan {
   entry: "ARIA";
   delegatedAgents: SpecialistAgentId[];
   task: string;
+}
+
+interface AriaPlannerDecision {
+  task: string;
+  shouldDelegate: boolean;
+  delegatedAgents: SpecialistAgentId[];
+  reason: string;
+}
+
+interface PlannedRoute {
+  routePlan: RoutePlan;
+  plannerSubSteps: SubAgentStep[];
+  plannerReason: string;
+  usedModelPlanner: boolean;
+}
+
+interface RouteTrace {
+  runId: string;
+  task: string;
+  delegatedAgents: SpecialistAgentId[];
+  mode: "delegated" | "direct";
+  startedAt: string;
+  completedAt: string;
+  totalDurationMs: number;
+  steps: Array<{
+    agentId: AgentId;
+    provider: ProviderId;
+    durationMs: number;
+    lane?: AgentLane;
+    statusDetail?: string;
+  }>;
+}
+
+type RunDecisionSource = "structured_shortcut" | "fast_path" | "planner" | "error";
+type PersistedRunStatus = "completed" | "error";
+
+interface PersistedOrchestratorRunRecord {
+  runId: string;
+  prompt: string;
+  task: string;
+  entry: "ARIA";
+  delegatedAgents: SpecialistAgentId[];
+  teamModeEnabled: boolean;
+  mode: "delegated" | "direct";
+  decisionSource: RunDecisionSource;
+  status: PersistedRunStatus;
+  createdAt: string;
+  completedAt: string;
+  totalDurationMs: number;
+  trace: RouteTrace;
+  steps: AgentStep[];
+  error?: string;
+}
+
+interface PersistedOrchestratorRunSummary {
+  runId: string;
+  createdAt: string;
+  task: string;
+  mode: "delegated" | "direct";
+  decisionSource: RunDecisionSource;
+  delegatedAgents: SpecialistAgentId[];
+  status: PersistedRunStatus;
+  totalDurationMs: number;
+  stepCount: number;
+  summary: string;
 }
 
 const AGENT_PROMPTS: Record<AgentId, string> = {
@@ -105,21 +214,22 @@ const NAME_MAP: Record<string, AgentId> = {
   PULSE: "VOX",
 };
 
-const AGENT_LABELS: Record<AgentId, string> = {
-  SCOUT: "investigación web e inteligencia",
-  APEX: "ingeniería",
-  VERA: "análisis",
-  ZION: "estrategia",
-  FORGE: "automatización",
-  ECHO: "comunicaciones",
-  VOX: "contenido",
-  ARIA: "orquestación",
-};
-
 const ROUTING_RULES: Array<{ agentId: SpecialistAgentId; patterns: RegExp[] }> = [
   {
     agentId: "SCOUT",
-    patterns: [/\binvestig/i, /\bweb\b/i, /\binternet\b/i, /\bfuentes?\b/i, /\bmercado\b/i, /\bcompet/i, /\btendenc/i, /\bbenchmark/i],
+    patterns: [
+      /\binvestig/i,
+      /\bweb\b/i,
+      /\binternet\b/i,
+      /\bfuentes?\b/i,
+      /\bmercado\b/i,
+      /\bcompet/i,
+      /\btendenc/i,
+      /\bbenchmark/i,
+      /\bicp\b/i,
+      /\bnicho\b/i,
+      /\bsegmento\b/i,
+    ],
   },
   {
     agentId: "APEX",
@@ -131,7 +241,24 @@ const ROUTING_RULES: Array<{ agentId: SpecialistAgentId; patterns: RegExp[] }> =
   },
   {
     agentId: "ZION",
-    patterns: [/\bestrateg/i, /\broadmap\b/i, /\bpriori/i, /\bnegocio\b/i, /\bdecision/i, /\btrade/i, /\bplan\b/i],
+    patterns: [
+      /\bestrateg/i,
+      /\broadmap\b/i,
+      /\bpriori/i,
+      /\bnegocio\b/i,
+      /\bdecision/i,
+      /\btrade/i,
+      /\bplan\b/i,
+      /\bvender\b/i,
+      /\bventa\b/i,
+      /\bpitch\b/i,
+      /\boferta\b/i,
+      /\balpha\b/i,
+      /\bmvp\b/i,
+      /\bposicion/i,
+      /\bdemo\b/i,
+      /\bpricing\b/i,
+    ],
   },
   {
     agentId: "FORGE",
@@ -139,13 +266,32 @@ const ROUTING_RULES: Array<{ agentId: SpecialistAgentId; patterns: RegExp[] }> =
   },
   {
     agentId: "ECHO",
-    patterns: [/\bemail\b/i, /\bmail\b/i, /\bmensaje/i, /\bwhatsapp\b/i, /\bcliente\b/i, /\brespuesta\b/i, /\bfollow/i, /\bpropuesta\b/i],
+    patterns: [
+      /\bemail\b/i,
+      /\bmail\b/i,
+      /\bmensaje/i,
+      /\bwhatsapp\b/i,
+      /\bcliente\b/i,
+      /\brespuesta\b/i,
+      /\bfollow/i,
+      /\bpropuesta\b/i,
+      /\bpitch\b/i,
+      /\bcopy\b/i,
+      /\bventa\b/i,
+      /\boferta\b/i,
+    ],
   },
   {
     agentId: "VOX",
     patterns: [/\bcontenido\b/i, /\breel\b/i, /\bpost\b/i, /\bguion\b/i, /\bcaption\b/i, /\bcopy\b/i, /\blinkedin\b/i, /\binstagram\b/i, /\btiktok\b/i, /\bcarrusel\b/i],
   },
 ];
+
+const COMMERCIAL_INTENT_PATTERN =
+  /\b(vender|venta|pitch|oferta|posicionamiento|posicionar|demo|gtm|go to market|pricing|precio)\b/i;
+const COMMERCIAL_DISCOVERY_PATTERN = /\b(mercado|competencia|competidor|benchmark|icp|segmento|nicho)\b/i;
+const ALPHA_READINESS_PATTERN = /\b(alpha|mvp|piloto|funcional|funcione|usable|estable|beta)\b/i;
+const OPERATIONAL_EXECUTION_PATTERN = /\b(n8n|workflow|automatizacion|automatizar|proceso|pipeline|operacion)\b/i;
 
 const REPO_FILES = ["src", "package.json", "README.md", "next.config.ts", "tsconfig.json"];
 const SEARCH_UA =
@@ -231,6 +377,468 @@ const AGENT_DIRECTORY: Record<AgentId, { role: string; summary: string }> = {
 
 const SEARCH_CACHE_TTL_MS = 5 * 60 * 1000;
 const scoutSearchCache = new Map<string, { expiresAt: number; results: SearchResult[] }>();
+const ORCHESTRATOR_RUNS_DIR = path.join(process.cwd(), ".office-ai", "orchestrator-runs");
+const MAX_STORED_ORCHESTRATOR_RUNS = 48;
+
+const SECTION_BUCKETS = {
+  summary: new Set([
+    "resumen",
+    "resumen ejecutivo",
+    "diagnostico tecnico",
+    "diagnóstico técnico",
+    "decision ejecutiva",
+    "decisión ejecutiva",
+    "workflow operativo fragmentado",
+    "lectura analitica",
+    "lectura analítica",
+    "marco de comunicacion",
+    "marco de comunicación",
+    "direccion de contenido",
+    "dirección de contenido",
+    "presentacion del sistema",
+    "presentación del sistema",
+    "saludo inicial",
+    "cierre coordinado",
+  ]),
+  evidence: new Set(["evidencia", "hallazgos clave", "superficie detectada", "fuentes"]),
+  risks: new Set(["riesgos", "riesgo"]),
+  nextSteps: new Set([
+    "proximos pasos",
+    "próximos pasos",
+    "oportunidades",
+    "proximo paso",
+    "próximo paso",
+    "prioridades",
+    "chequeos",
+    "reglas",
+    "borrador base",
+    "salida sugerida",
+  ]),
+};
+
+function createRunId() {
+  return `run-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
+}
+
+function cleanStructuredLine(line: string) {
+  return line
+    .replace(/^[-*•]\s*/u, "")
+    .replace(/^\[\d+\]\s*/u, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function dedupeStrings(values: string[]) {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function getSectionBucket(line: string): keyof typeof SECTION_BUCKETS | null {
+  const normalized = normalizePlainText(line).replace(/[:\s]+$/g, "");
+  if (SECTION_BUCKETS.summary.has(normalized)) return "summary";
+  if (SECTION_BUCKETS.evidence.has(normalized)) return "evidence";
+  if (SECTION_BUCKETS.risks.has(normalized)) return "risks";
+  if (SECTION_BUCKETS.nextSteps.has(normalized)) return "nextSteps";
+  return null;
+}
+
+function parseStructuredMessage(message: string) {
+  const sections: Record<keyof typeof SECTION_BUCKETS | "misc", string[]> = {
+    summary: [],
+    evidence: [],
+    risks: [],
+    nextSteps: [],
+    misc: [],
+  };
+
+  let activeBucket: keyof typeof SECTION_BUCKETS | "misc" = "misc";
+
+  for (const rawLine of message.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    const bucket = getSectionBucket(line);
+    if (bucket) {
+      activeBucket = bucket;
+      continue;
+    }
+
+    const cleaned = cleanStructuredLine(line);
+    if (!cleaned) continue;
+    sections[activeBucket].push(cleaned);
+  }
+
+  return sections;
+}
+
+function buildDefaultRisks(agentId: AgentId, task: string) {
+  if (agentId === "SCOUT") {
+    return [`Validar que las señales relevadas para "${task}" sigan siendo relevantes y comparables.`];
+  }
+
+  if (agentId === "APEX") {
+    return [`Si no se prueba el cambio mínimo para "${task}", el fix puede abrir regresiones.`];
+  }
+
+  if (agentId === "FORGE") {
+    return [`Sin límites operativos, "${task}" puede crecer de un workflow simple a una automatización frágil.`];
+  }
+
+  if (agentId === "ARIA") {
+    return [`Si faltan outputs estructurados, ARIA podría cerrar "${task}" con poca trazabilidad.`];
+  }
+
+  return [`Si el alcance de "${task}" no se recorta, el agente puede responder demasiado general.`];
+}
+
+function buildDefaultNextSteps(agentId: AgentId, task: string) {
+  if (agentId === "SCOUT") {
+    return [`Contrastar 2 o 3 hallazgos críticos antes de mover "${task}" a ejecución.`];
+  }
+
+  if (agentId === "APEX") {
+    return [`Aplicar el cambio mínimo para "${task}" y validar con typecheck, lint y build.`];
+  }
+
+  if (agentId === "FORGE") {
+    return [`Bajar "${task}" a un flujo corto en n8n con trigger, handoff y cierre trazable.`];
+  }
+
+  if (agentId === "ECHO") {
+    return [`Convertir "${task}" en un mensaje con una sola CTA y una promesa concreta.`];
+  }
+
+  if (agentId === "ZION") {
+    return [`Elegir un frente principal para "${task}" y dejar el resto como backlog.`];
+  }
+
+  return [`Definir el siguiente paso más corto y medible para "${task}".`];
+}
+
+function formatStructuredOutput(output: AgentStructuredOutput) {
+  const lines = ["Resumen", `- ${output.summary}`];
+
+  if (output.evidence.length > 0) {
+    lines.push("Evidencia");
+    lines.push(
+      ...output.evidence.slice(0, 3).map((item) => `- ${item.claim}${item.url ? ` (${item.url})` : ""}`)
+    );
+  }
+
+  if (output.risks.length > 0) {
+    lines.push("Riesgos");
+    lines.push(...output.risks.slice(0, 3).map((item) => `- ${item}`));
+  }
+
+  if (output.nextSteps.length > 0) {
+    lines.push("Próximos pasos");
+    lines.push(...output.nextSteps.slice(0, 3).map((item) => `- ${item}`));
+  }
+
+  if (output.artifacts.length > 0) {
+    lines.push("Artifacts");
+    lines.push(...output.artifacts.slice(0, 2).map((item) => `- ${item.title}`));
+  }
+
+  return lines.join("\n");
+}
+
+function deriveStructuredOutputFromMessage(
+  agentId: AgentId,
+  task: string,
+  message: string,
+  sources: SearchResult[] = []
+): AgentStructuredOutput {
+  const sections = parseStructuredMessage(message);
+  const summary =
+    sections.summary[0] ??
+    sections.evidence[0] ??
+    sections.misc[0] ??
+    `No hubo un resumen estructurado para "${task}".`;
+
+  const evidenceFromMessage = dedupeStrings([...sections.evidence, ...sections.misc.slice(1, 3)]).slice(0, 3).map((item, index) => ({
+    title: `${agentId} evidence ${index + 1}`,
+    claim: item,
+  }));
+
+  const evidence =
+    sources.length > 0
+      ? sources.slice(0, 4).map((source) => ({
+          title: source.title,
+          url: source.url,
+          claim: selectRelevantEvidence(source, task),
+          snippet: source.snippet || source.pageExcerpt,
+        }))
+      : evidenceFromMessage;
+
+  const risks = dedupeStrings(sections.risks).slice(0, 3);
+  const nextSteps = dedupeStrings(sections.nextSteps).slice(0, 3);
+
+  return {
+    summary,
+    evidence: evidence.slice(0, 4),
+    risks: risks.length > 0 ? risks : buildDefaultRisks(agentId, task),
+    nextSteps: nextSteps.length > 0 ? nextSteps : buildDefaultNextSteps(agentId, task),
+    artifacts: [
+      {
+        kind: agentId === "ECHO" ? "draft" : "brief",
+        title: `${agentId} output`,
+        content: clip(message.replace(/\s+/g, " "), 320),
+      },
+    ],
+  };
+}
+
+function buildScoutStructuredOutput(task: string, results: SearchResult[], message: string): AgentStructuredOutput {
+  const executiveLine = message
+    .split(/\r?\n/)
+    .map((line) => cleanStructuredLine(line))
+    .find((line) => line && !/^(Resumen ejecutivo|Hallazgos clave|Oportunidades|Riesgos|Fuentes)$/i.test(line));
+
+  return {
+    summary: executiveLine || `SCOUT reunió señales web útiles para "${task}".`,
+    evidence: results.slice(0, 4).map((result) => ({
+      title: result.title,
+      url: result.url,
+      claim: selectRelevantEvidence(result, task),
+      snippet: result.snippet || result.pageExcerpt,
+    })),
+    risks: buildScoutRisks(task, results),
+    nextSteps: buildScoutOpportunities(task, results),
+    artifacts: [
+      {
+        kind: "research-brief",
+        title: "Scout research brief",
+        content: clip(message.replace(/\s+/g, " "), 320),
+      },
+    ],
+  };
+}
+
+function buildApexStructuredOutput(task: string, context: string, message: string): AgentStructuredOutput {
+  const snippets = context
+    .split("\n\n")
+    .filter(Boolean)
+    .slice(0, 3)
+    .map((chunk, index) => ({
+      title: `Repo snippet ${index + 1}`,
+      claim: clip(chunk.replace(/\s+/g, " "), 220),
+    }));
+
+  return {
+    summary: `APEX revisó el repo para "${task}" y detectó la superficie mínima a tocar.`,
+    evidence: snippets.length > 0 ? snippets : [{ title: "Repo scan", claim: "No encontré archivos obvios en el repo actual para esta consulta." }],
+    risks: [`Sin validar el cambio mínimo para "${task}", el fix puede quedar incompleto.`],
+    nextSteps: [`Aplicar el cambio mínimo para "${task}" y correr typecheck, lint y build.`],
+    artifacts: [
+      {
+        kind: "technical-note",
+        title: "Apex technical note",
+        content: clip(message.replace(/\s+/g, " "), 320),
+      },
+    ],
+  };
+}
+
+function buildAriaStructuredOutput(task: string, steps: AgentStep[]): AgentStructuredOutput {
+  const specialists = steps.filter((step) => step.agentId !== "ARIA");
+
+  if (specialists.length === 0) {
+    return {
+      summary: `ARIA no recibió outputs especialistas suficientes para cerrar "${task}".`,
+      evidence: [],
+      risks: [`Faltan resultados especialistas para cerrar "${task}" con confianza.`],
+      nextSteps: [`Relanzar "${task}" con uno o dos agentes principales más definidos.`],
+      artifacts: [],
+    };
+  }
+
+  const evidence = specialists.flatMap((step) =>
+    (step.output?.evidence ?? []).slice(0, 1).map((item) => ({
+      title: `${step.agentId}: ${item.title}`,
+      claim: item.claim,
+      url: item.url,
+      snippet: item.snippet,
+    }))
+  );
+  const risks = dedupeStrings(specialists.flatMap((step) => step.output?.risks ?? [])).slice(0, 4);
+  const nextSteps = dedupeStrings(specialists.flatMap((step) => step.output?.nextSteps ?? [])).slice(0, 4);
+  const artifacts = specialists.flatMap((step) =>
+    (step.output?.artifacts ?? []).slice(0, 1).map((item) => ({
+      kind: item.kind,
+      title: `${step.agentId}: ${item.title}`,
+      content: item.content,
+    }))
+  );
+
+  return {
+    summary:
+      specialists.length === 1
+        ? `${specialists[0].agentId} devolvió un output estructurado para "${task}" y ARIA solo consolidó el cierre.`
+        : `ARIA consolidó ${specialists.length} outputs especialistas para "${task}" sin inventar evidencia nueva.`,
+    evidence: evidence.slice(0, 4),
+    risks: risks.length > 0 ? risks : [`No hubo riesgos explícitos, así que conviene revisar el cierre antes de ejecutar "${task}".`],
+    nextSteps: nextSteps.length > 0 ? nextSteps : [`Elegir el siguiente paso más corto para "${task}" y pedir aprobación humana antes de ejecutar.`],
+    artifacts,
+  };
+}
+
+function attachStepMeta(step: AgentStep, runId: string, startedAtMs: number): AgentStep {
+  const completedAt = new Date().toISOString();
+  const output = step.output ?? deriveStructuredOutputFromMessage(step.agentId, step.task, step.message, step.sources ?? []);
+
+  return {
+    ...step,
+    runId,
+    output,
+    trace: {
+      startedAt: new Date(startedAtMs).toISOString(),
+      completedAt,
+      durationMs: Math.max(1, Date.now() - startedAtMs),
+    },
+  };
+}
+
+function buildRouteTrace(runId: string, routePlan: RoutePlan, routeStartedAtMs: number, steps: AgentStep[]): RouteTrace {
+  return {
+    runId,
+    task: routePlan.task,
+    delegatedAgents: routePlan.delegatedAgents,
+    mode: routePlan.delegatedAgents.length > 0 ? "delegated" : "direct",
+    startedAt: new Date(routeStartedAtMs).toISOString(),
+    completedAt: new Date().toISOString(),
+    totalDurationMs: Math.max(1, Date.now() - routeStartedAtMs),
+    steps: steps.map((step) => ({
+      agentId: step.agentId,
+      provider: step.provider,
+      durationMs: step.trace?.durationMs ?? 0,
+      lane: step.lane,
+      statusDetail: step.statusDetail,
+    })),
+  };
+}
+
+function buildRunSummary(record: PersistedOrchestratorRunRecord): PersistedOrchestratorRunSummary {
+  const closingStep = [...record.steps].reverse().find((step) => step.agentId === "ARIA") ?? record.steps[record.steps.length - 1];
+  const summary =
+    closingStep?.output?.summary ??
+    closingStep?.message
+      .split(/\r?\n/)
+      .map((line) => cleanStructuredLine(line))
+      .find(Boolean) ??
+    `Run ${record.runId} completado sin resumen visible.`;
+
+  return {
+    runId: record.runId,
+    createdAt: record.createdAt,
+    task: record.task,
+    mode: record.mode,
+    decisionSource: record.decisionSource,
+    delegatedAgents: record.delegatedAgents,
+    status: record.status,
+    totalDurationMs: record.totalDurationMs,
+    stepCount: record.steps.length,
+    summary: clip(summary, 180),
+  };
+}
+
+async function ensureOrchestratorRunsDir() {
+  await fs.mkdir(ORCHESTRATOR_RUNS_DIR, { recursive: true });
+}
+
+async function trimStoredOrchestratorRuns() {
+  const entries = await fs.readdir(ORCHESTRATOR_RUNS_DIR, { withFileTypes: true });
+  const filesWithTime = await Promise.all(
+    entries
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+      .map(async (entry) => {
+        const filePath = path.join(ORCHESTRATOR_RUNS_DIR, entry.name);
+        const stats = await fs.stat(filePath);
+        return { filePath, modifiedAtMs: stats.mtimeMs };
+      })
+  );
+
+  const staleFiles = filesWithTime
+    .sort((left, right) => right.modifiedAtMs - left.modifiedAtMs)
+    .slice(MAX_STORED_ORCHESTRATOR_RUNS);
+
+  await Promise.all(staleFiles.map((file) => fs.rm(file.filePath, { force: true })));
+}
+
+async function persistOrchestratorRun(record: PersistedOrchestratorRunRecord) {
+  try {
+    await ensureOrchestratorRunsDir();
+    await fs.writeFile(
+      path.join(ORCHESTRATOR_RUNS_DIR, `${record.runId}.json`),
+      JSON.stringify(record, null, 2),
+      "utf8"
+    );
+    await trimStoredOrchestratorRuns();
+  } catch (error) {
+    console.error("No pude persistir la corrida del orquestador:", error);
+  }
+}
+
+async function listRecentOrchestratorRuns(limit: number) {
+  try {
+    await ensureOrchestratorRunsDir();
+    const entries = await fs.readdir(ORCHESTRATOR_RUNS_DIR, { withFileTypes: true });
+    const records = await Promise.all(
+      entries
+        .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+        .map(async (entry) => {
+          const filePath = path.join(ORCHESTRATOR_RUNS_DIR, entry.name);
+          try {
+            const raw = await fs.readFile(filePath, "utf8");
+            return JSON.parse(raw) as PersistedOrchestratorRunRecord;
+          } catch {
+            return null;
+          }
+        })
+    );
+
+    return records
+      .filter((record): record is PersistedOrchestratorRunRecord => Boolean(record))
+      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
+      .slice(0, limit)
+      .map(buildRunSummary);
+  } catch (error) {
+    console.error("No pude listar corridas del orquestador:", error);
+    return [];
+  }
+}
+
+async function persistObservedRun(params: {
+  runId: string;
+  prompt: string;
+  routePlan: RoutePlan;
+  teamModeEnabled: boolean;
+  decisionSource: RunDecisionSource;
+  status: PersistedRunStatus;
+  routeStartedAtMs: number;
+  steps: AgentStep[];
+  trace: RouteTrace;
+  error?: string;
+}) {
+  const { runId, prompt, routePlan, teamModeEnabled, decisionSource, status, routeStartedAtMs, steps, trace, error } = params;
+
+  await persistOrchestratorRun({
+    runId,
+    prompt,
+    task: routePlan.task,
+    entry: routePlan.entry,
+    delegatedAgents: routePlan.delegatedAgents,
+    teamModeEnabled,
+    mode: trace.mode,
+    decisionSource,
+    status,
+    createdAt: new Date(routeStartedAtMs).toISOString(),
+    completedAt: trace.completedAt,
+    totalDurationMs: trace.totalDurationMs,
+    trace,
+    steps,
+    error,
+  });
+}
 
 function isAgentDescriptor(value: unknown): value is AgentDescriptor {
   if (typeof value !== "object" || value === null) return false;
@@ -471,9 +1079,63 @@ function inferDelegatedAgents(prompt: string) {
   return selected.slice(0, 3);
 }
 
+function inferCommercialAgents(prompt: string) {
+  const normalized = normalizePlainText(stripLeadingMention(prompt) || prompt);
+  if (!COMMERCIAL_INTENT_PATTERN.test(normalized)) {
+    return [];
+  }
+
+  const selected: SpecialistAgentId[] = [];
+
+  if (COMMERCIAL_DISCOVERY_PATTERN.test(normalized)) {
+    selected.push("SCOUT");
+  }
+
+  selected.push("ZION");
+
+  if (OPERATIONAL_EXECUTION_PATTERN.test(normalized)) {
+    selected.push("FORGE");
+  }
+
+  selected.push("ECHO");
+
+  return [...new Set(selected)].slice(0, 3);
+}
+
+function inferAlphaReadinessAgents(prompt: string) {
+  const normalized = normalizePlainText(stripLeadingMention(prompt) || prompt);
+  if (!ALPHA_READINESS_PATTERN.test(normalized)) {
+    return [];
+  }
+
+  if (!OPERATIONAL_EXECUTION_PATTERN.test(normalized) && !/\b(funcional|funcione|usable|estable)\b/i.test(normalized)) {
+    return [];
+  }
+
+  const selected: SpecialistAgentId[] = [];
+
+  if (OPERATIONAL_EXECUTION_PATTERN.test(normalized)) {
+    selected.push("FORGE");
+  }
+
+  selected.push("APEX");
+  selected.push("ZION");
+
+  return [...new Set(selected)].slice(0, 3);
+}
+
 function plan(prompt: string): RoutePlan {
   const explicitlyMentioned = extractMentionedAgents(prompt);
-  const delegatedAgents = explicitlyMentioned.length > 0 ? explicitlyMentioned : inferDelegatedAgents(prompt);
+  const commercialAgents = inferCommercialAgents(prompt);
+  const alphaReadinessAgents = inferAlphaReadinessAgents(prompt);
+  const delegatedAgents =
+    explicitlyMentioned.length > 0
+      ? explicitlyMentioned
+      : commercialAgents.length > 0
+        ? commercialAgents
+        : alphaReadinessAgents.length > 0
+          ? alphaReadinessAgents
+          : inferDelegatedAgents(prompt);
   const task = delegatedAgents.length > 0 ? extractDelegatedTask(prompt, delegatedAgents) : stripLeadingMention(prompt) || prompt.trim();
 
   return {
@@ -485,9 +1147,9 @@ function plan(prompt: string): RoutePlan {
 
 function joinAgentMentions(agentIds: SpecialistAgentId[]) {
   if (agentIds.length === 0) return "";
-  if (agentIds.length === 1) return `@${agentIds[0].toLowerCase()}`;
-  if (agentIds.length === 2) return `@${agentIds[0].toLowerCase()} y @${agentIds[1].toLowerCase()}`;
-  return `@${agentIds[0].toLowerCase()}, @${agentIds[1].toLowerCase()} y @${agentIds[2].toLowerCase()}`;
+  if (agentIds.length === 1) return agentIds[0];
+  if (agentIds.length === 2) return `${agentIds[0]} y ${agentIds[1]}`;
+  return `${agentIds[0]}, ${agentIds[1]} y ${agentIds[2]}`;
 }
 
 function getLeadLane(index: number): AgentLane {
@@ -543,6 +1205,355 @@ function buildTeamContext(agentId: AgentId, task: string, teamModeEnabled: boole
 function attachTeamData(step: AgentStep, teamAssignments: TeamAssignment[], teamModeEnabled: boolean) {
   if (!teamModeEnabled || teamAssignments.length === 0) return step;
   return { ...step, teamAssignments, teamModeUsed: true };
+}
+
+function attachSubStepMeta(step: SubAgentStep, startedAtMs: number): SubAgentStep {
+  const completedAt = new Date().toISOString();
+  return {
+    ...step,
+    trace: {
+      startedAt: new Date(startedAtMs).toISOString(),
+      completedAt,
+      durationMs: Math.max(1, Date.now() - startedAtMs),
+    },
+  };
+}
+
+function pickSubAgentAssignments(teamAssignments: TeamAssignment[], rapidMode: boolean) {
+  if (teamAssignments.length === 0) return [];
+  return rapidMode ? teamAssignments.slice(0, Math.min(2, teamAssignments.length)) : teamAssignments;
+}
+
+function buildSubStepFallbackMessage(parentAgentId: AgentId, assignment: TeamAssignment, task: string, reason: string) {
+  return [
+    "Resumen",
+    `- ${assignment.subAgentName} cubrió "${assignment.objective}" dentro de "${task}".`,
+    "Evidencia",
+    `- ${parentAgentId} mantuvo este frente vivo con una guía mínima porque el modelo no respondió.`,
+    "Riesgos",
+    `- ${reason}.`,
+    "Próximos pasos",
+    `- Revalidar este frente cuando el modelo vuelva a estar disponible para ${assignment.subAgentName}.`,
+  ].join("\n");
+}
+
+function buildSubStepsContext(subSteps: SubAgentStep[]) {
+  if (subSteps.length === 0) return "";
+  return subSteps
+    .map((step) =>
+      [
+        `${step.subAgentName} (${step.subAgentRole})`,
+        `Objetivo: ${step.objective}`,
+        `Resumen: ${step.output?.summary ?? clip(step.message.replace(/\s+/g, " "), 180)}`,
+        step.output?.risks?.length ? `Riesgos: ${step.output.risks.slice(0, 2).join(" | ")}` : "",
+        step.output?.nextSteps?.length ? `Próximos pasos: ${step.output.nextSteps.slice(0, 2).join(" | ")}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n")
+    )
+    .join("\n\n");
+}
+
+function buildOutputFromSubSteps(agentId: AgentId, task: string, subSteps: SubAgentStep[], sources: SearchResult[] = []): AgentStructuredOutput {
+  const summaryHighlights = dedupeStrings(
+    subSteps.map((step) => step.output?.summary ?? cleanStructuredLine(step.message)).filter(Boolean)
+  ).slice(0, 2);
+  const evidence =
+    sources.length > 0
+      ? sources.slice(0, 4).map((source) => ({
+          title: source.title,
+          url: source.url,
+          claim: selectRelevantEvidence(source, task),
+          snippet: source.snippet || source.pageExcerpt,
+        }))
+      : subSteps.flatMap((step) => {
+          const subEvidence = step.output?.evidence ?? [];
+          if (subEvidence.length > 0) {
+            return subEvidence.slice(0, 1).map((item) => ({
+              title: `${step.subAgentName}: ${item.title}`,
+              claim: item.claim,
+              url: item.url,
+              snippet: item.snippet,
+            }));
+          }
+
+          return [
+            {
+              title: `${step.subAgentName} summary`,
+              claim: step.output?.summary ?? clip(step.message.replace(/\s+/g, " "), 180),
+            },
+          ];
+        });
+  const risks = dedupeStrings(subSteps.flatMap((step) => step.output?.risks ?? [])).slice(0, 4);
+  const nextSteps = dedupeStrings(subSteps.flatMap((step) => step.output?.nextSteps ?? [])).slice(0, 4);
+
+  return {
+    summary:
+      summaryHighlights.length > 0
+        ? clip(`${agentId} consolidó ${subSteps.length} subagentes: ${summaryHighlights.join(" / ")}`, 220)
+        : `${agentId} consolidó ${subSteps.length} subagentes internos para "${task}".`,
+    evidence: evidence.slice(0, 4),
+    risks: risks.length > 0 ? risks : buildDefaultRisks(agentId, task),
+    nextSteps: nextSteps.length > 0 ? nextSteps : buildDefaultNextSteps(agentId, task),
+    artifacts: subSteps.slice(0, 3).map((step) => ({
+      kind: "subagent-note",
+      title: `${step.subAgentName} output`,
+      content: clip(step.message.replace(/\s+/g, " "), 320),
+    })),
+  };
+}
+
+async function runSubAgent(
+  parentAgentId: AgentId,
+  task: string,
+  assignment: TeamAssignment,
+  context: string,
+  rapidMode: boolean,
+  extraInstructions = ""
+) {
+  const startedAtMs = Date.now();
+  const generation = await tryGenerateWithOptions(
+    [
+      `Sos ${assignment.subAgentName}, subagente interno de ${parentAgentId}.`,
+      `Rol: ${assignment.subAgentRole}.`,
+      `Objetivo puntual: ${assignment.objective}.`,
+      "Respondé en español y no repitas que sos un modelo.",
+    ].join(" "),
+    [
+      `Tarea principal:\n${task}`,
+      `Objetivo puntual:\n${assignment.objective}`,
+      context ? `Contexto operativo:\n${context}` : "",
+      [
+        "Instrucciones:",
+        "- Enfocate solo en tu frente y no cierres toda la tarea.",
+        "- Respondé con secciones: Resumen, Evidencia, Riesgos y Próximos pasos.",
+        `- Mantené la salida ${rapidMode ? "muy corta" : "corta"} y accionable.`,
+        extraInstructions,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
+    {
+      agentId: parentAgentId,
+      maxOutputTokens: rapidMode ? 84 : 120,
+      timeoutMs: rapidMode ? 3200 : 4500,
+      numCtx: context ? 1536 : 1024,
+      temperature: 0.1,
+    }
+  );
+
+  const resolvedMessage = generation.text
+    ? stripThoughtTags(generation.text) || generation.text
+    : buildSubStepFallbackMessage(
+        parentAgentId,
+        assignment,
+        task,
+        generation.errors.join(" | ") || "El modelo no respondió"
+      );
+
+  const output = deriveStructuredOutputFromMessage(parentAgentId, `${task} · ${assignment.objective}`, resolvedMessage);
+
+  return attachSubStepMeta(
+    {
+      subAgentId: assignment.subAgentId,
+      subAgentName: assignment.subAgentName,
+      subAgentRole: assignment.subAgentRole,
+      objective: assignment.objective,
+      thought: `${assignment.subAgentName} atacó "${assignment.objective}" para ${parentAgentId}.`,
+      message: resolvedMessage,
+      provider: generation.text ? generation.provider : "stub",
+      output,
+    },
+    startedAtMs
+  );
+}
+
+async function runSubAgentBatch(
+  parentAgentId: AgentId,
+  task: string,
+  teamAssignments: TeamAssignment[],
+  context: string,
+  rapidMode: boolean,
+  extraInstructions = ""
+) {
+  const selectedAssignments = pickSubAgentAssignments(teamAssignments, rapidMode);
+  if (selectedAssignments.length === 0) return [];
+
+  const settled = await Promise.allSettled(
+    selectedAssignments.map((assignment) =>
+      withTimeout(
+        runSubAgent(parentAgentId, task, assignment, context, rapidMode, extraInstructions),
+        rapidMode ? 3600 : 5000,
+        () =>
+          attachSubStepMeta(
+            {
+              subAgentId: assignment.subAgentId,
+              subAgentName: assignment.subAgentName,
+              subAgentRole: assignment.subAgentRole,
+              objective: assignment.objective,
+              thought: `${assignment.subAgentName} devolvió fallback por timeout.`,
+              message: buildSubStepFallbackMessage(parentAgentId, assignment, task, "Timeout operativo interno"),
+              provider: "stub",
+              output: deriveStructuredOutputFromMessage(
+                parentAgentId,
+                `${task} · ${assignment.objective}`,
+                buildSubStepFallbackMessage(parentAgentId, assignment, task, "Timeout operativo interno")
+              ),
+            },
+            Date.now()
+          )
+      )
+    )
+  );
+
+  return settled.map((result, index) => {
+    if (result.status === "fulfilled") return result.value;
+
+    const assignment = selectedAssignments[index];
+    const fallbackMessage = buildSubStepFallbackMessage(
+      parentAgentId,
+      assignment,
+      task,
+      getErrorMessage(result.reason)
+    );
+    return attachSubStepMeta(
+      {
+        subAgentId: assignment.subAgentId,
+        subAgentName: assignment.subAgentName,
+        subAgentRole: assignment.subAgentRole,
+        objective: assignment.objective,
+        thought: `${assignment.subAgentName} devolvió fallback por error de ejecución.`,
+        message: fallbackMessage,
+        provider: "stub",
+        output: deriveStructuredOutputFromMessage(parentAgentId, `${task} · ${assignment.objective}`, fallbackMessage),
+      },
+      Date.now()
+    );
+  });
+}
+
+function buildRoutingDirectory() {
+  return (Object.entries(AGENT_DIRECTORY) as Array<[AgentId, (typeof AGENT_DIRECTORY)[AgentId]]>)
+    .filter(([agentId]) => agentId !== "ARIA")
+    .map(([agentId, info]) => `- ${agentId}: ${info.role}. ${info.summary}.`)
+    .join("\n");
+}
+
+function extractJsonObject(text: string) {
+  const fenced = text.match(/```json\s*([\s\S]*?)```/i);
+  if (fenced?.[1]) return fenced[1].trim();
+
+  const firstBrace = text.indexOf("{");
+  const lastBrace = text.lastIndexOf("}");
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    return text.slice(firstBrace, lastBrace + 1).trim();
+  }
+
+  return text.trim();
+}
+
+function parsePlannerDecision(rawText: string, prompt: string): AriaPlannerDecision | null {
+  try {
+    const parsed = JSON.parse(extractJsonObject(rawText)) as {
+      task?: unknown;
+      shouldDelegate?: unknown;
+      delegatedAgents?: unknown;
+      reason?: unknown;
+    };
+
+    const delegatedAgents = Array.isArray(parsed.delegatedAgents)
+      ? [...new Set(parsed.delegatedAgents.map((item) => normalizeAgentId(String(item))).filter((item): item is SpecialistAgentId => Boolean(item && item !== "ARIA")))].slice(0, 3)
+      : [];
+    const shouldDelegate =
+      typeof parsed.shouldDelegate === "boolean" ? parsed.shouldDelegate && delegatedAgents.length > 0 : delegatedAgents.length > 0;
+    const task =
+      typeof parsed.task === "string" && parsed.task.trim()
+        ? parsed.task.trim()
+        : stripLeadingMention(prompt) || prompt.trim();
+
+    return {
+      task,
+      shouldDelegate,
+      delegatedAgents: shouldDelegate ? delegatedAgents : [],
+      reason:
+        typeof parsed.reason === "string" && parsed.reason.trim()
+          ? clip(parsed.reason.replace(/\s+/g, " ").trim(), 220)
+          : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function planWithAria(prompt: string, roster: string, teamModeEnabled: boolean): Promise<PlannedRoute> {
+  const heuristicPlan = plan(prompt);
+  const { teamAssignments } = buildTeamContext("ARIA", heuristicPlan.task, teamModeEnabled);
+  const plannerSubSteps = await runSubAgentBatch(
+    "ARIA",
+    prompt,
+    teamAssignments,
+    `Pedido del usuario:\n${prompt}\n\nEspecialistas disponibles:\n${buildRoutingDirectory()}`,
+    false,
+    "- Enfocate en triage, routing y seguimiento. No redactes la respuesta final."
+  );
+
+  const generation = await tryGenerateWithOptions(
+    `${AGENT_PROMPTS.ARIA}${roster}\nTu trabajo actual es decidir routing, no redactar la solución final.`,
+    [
+      `Pedido del usuario:\n${prompt}`,
+      `Especialistas disponibles:\n${buildRoutingDirectory()}`,
+      plannerSubSteps.length > 0 ? `Lecturas internas de ARIA:\n${buildSubStepsContext(plannerSubSteps)}` : "",
+      [
+        "Instrucciones:",
+        "- Decidí si ARIA responde directo o si delega.",
+        "- Si delegás, elegí como máximo 3 especialistas.",
+        "- No delegues saludos, meta-consultas sobre el sistema ni coordinación simple.",
+        '- Devolvé JSON estricto con esta forma: {"task":"...","shouldDelegate":true,"delegatedAgents":["SCOUT"],"reason":"..."}',
+      ].join("\n"),
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
+    {
+      agentId: "ARIA",
+      maxOutputTokens: 160,
+      timeoutMs: 4500,
+      numCtx: 1600,
+      temperature: 0.1,
+    }
+  );
+
+  const parsedDecision = generation.text
+    ? parsePlannerDecision(stripThoughtTags(generation.text) || generation.text, prompt)
+    : null;
+
+  if (!parsedDecision) {
+    return {
+      routePlan: heuristicPlan,
+      plannerSubSteps,
+      plannerReason:
+        plannerSubSteps.length > 0
+          ? "ARIA abrió triage interno, pero el planner IA no devolvió JSON válido y cayó al enrutado heurístico."
+          : "ARIA cayó al enrutado heurístico por falta de planner IA.",
+      usedModelPlanner: false,
+    };
+  }
+
+  return {
+    routePlan: {
+      entry: "ARIA",
+      task: parsedDecision.task,
+      delegatedAgents: parsedDecision.shouldDelegate ? parsedDecision.delegatedAgents : [],
+    },
+    plannerSubSteps,
+    plannerReason:
+      parsedDecision.reason ||
+      (parsedDecision.shouldDelegate
+        ? "ARIA detectó que conviene abrir especialistas."
+        : "ARIA detectó que puede cerrar el pedido en forma directa."),
+    usedModelPlanner: true,
+  };
 }
 
 async function tryGenerateWithOptions(system: string, prompt: string, options: GenerationOptions = {}) {
@@ -893,23 +1904,6 @@ function buildScoutExtractiveResponse(task: string, results: SearchResult[]) {
   ].join("\n");
 }
 
-function buildApexExtractiveResponse(task: string, context: string) {
-  const snippets = context
-    .split("\n\n")
-    .filter(Boolean)
-    .slice(0, 3)
-    .map((chunk, index) => `- [${index + 1}] ${clip(chunk.replace(/\s+/g, " "), 220)}`);
-
-  return [
-    "Diagnóstico técnico",
-    `- APEX enfocó la revisión sobre "${task}".`,
-    "Superficie detectada",
-    ...(snippets.length > 0 ? snippets : ["- No encontré archivos obvios en el repo para esta consulta."]),
-    "Próximo paso",
-    "- Validá el cambio mínimo en el área afectada y corré typecheck, lint y build antes de cerrar.",
-  ].join("\n");
-}
-
 function buildRapidSpecialistResponse(agentId: Exclude<AgentId, "ARIA" | "SCOUT" | "APEX">, task: string) {
   if (agentId === "ZION") {
     return [
@@ -1059,7 +2053,7 @@ function fallback(agentId: AgentId, task: string, reason: string, sources: Searc
     task,
     provider: "stub",
     thought: `Estoy respondiendo en modo local porque el modelo no estuvo disponible. Motivo: ${reason}`,
-    message: `Puedo ayudarte con "${task}". Si querés más precisión, derivame a @scout, @apex, @forge, @vera, @echo, @vox o @zion.`,
+    message: `Puedo ayudarte con "${task}". Si hace falta más profundidad, ARIA puede derivarlo sola al especialista correcto sin que tengas que invocar agentes manualmente.`,
   };
 }
 
@@ -1092,18 +2086,7 @@ function buildOperationalThought(agentId: AgentId, task: string, teamAssignments
 }
 
 function buildAriaLeadWrapUp(task: string, steps: AgentStep[]) {
-  const specialists = steps.filter((step) => step.agentId !== "ARIA");
-  if (specialists.length === 0) {
-    return `Cierro el seguimiento de "${task}" sin respuestas especialistas disponibles todavía.`;
-  }
-
-  return [
-    `Cierre coordinado para "${task}":`,
-    ...specialists.map((step) => {
-      const firstLine = step.message.split("\n").find((line) => line.trim()) ?? "sin novedad";
-      return `- ${step.agentId}: ${clip(firstLine.replace(/^-+\s*/, ""), 140)}`;
-    }),
-  ].join("\n");
+  return formatStructuredOutput(buildAriaStructuredOutput(task, steps));
 }
 
 function buildAriaStep(
@@ -1111,7 +2094,9 @@ function buildAriaStep(
   message: string,
   thought: string,
   teamModeEnabled: boolean,
-  coordination: Partial<Pick<AgentStep, "lane" | "zone" | "interactionTargetId" | "statusDetail" | "handoffTargets">> = {}
+  coordination: Partial<Pick<AgentStep, "lane" | "zone" | "interactionTargetId" | "statusDetail" | "handoffTargets">> = {},
+  output?: AgentStructuredOutput,
+  subSteps: SubAgentStep[] = []
 ) {
   const { teamAssignments } = buildTeamContext("ARIA", task, teamModeEnabled);
   return attachCoordinationData(
@@ -1122,11 +2107,124 @@ function buildAriaStep(
         provider: "stub",
         thought,
         message,
+        output,
+        ...(subSteps.length > 0 ? { subSteps } : {}),
       },
       teamAssignments,
       teamModeEnabled
     ),
     coordination
+  );
+}
+
+async function runLeadWithSubAgents(
+  agentId: SpecialistAgentId,
+  task: string,
+  roster: string,
+  teamModeEnabled: boolean,
+  options: {
+    context?: string;
+    sources?: SearchResult[];
+    extraInstructions?: string;
+    subAgentExtraInstructions?: string;
+    rapidMode?: boolean;
+    outputBuilder?: (message: string, subSteps: SubAgentStep[]) => AgentStructuredOutput;
+  } = {}
+) {
+  const { teamAssignments, teamContext } = buildTeamContext(agentId, task, teamModeEnabled);
+  const rapidMode = Boolean(options.rapidMode);
+  const operativeContext = [options.context, teamAssignments.length === 0 ? teamContext : ""].filter(Boolean).join("\n\n");
+  const subSteps =
+    teamAssignments.length > 0
+      ? await runSubAgentBatch(
+          agentId,
+          task,
+          teamAssignments,
+          [options.context, roster].filter(Boolean).join("\n\n"),
+          rapidMode,
+          options.subAgentExtraInstructions ?? ""
+        )
+      : [];
+  const subStepsContext = buildSubStepsContext(subSteps);
+
+  const generation = await tryGenerateWithOptions(
+    `${AGENT_PROMPTS[agentId]}${roster}`,
+    [
+      `Consulta:\n${task}`,
+      operativeContext ? `Contexto:\n${operativeContext}` : "",
+      subStepsContext ? `Subagentes internos ejecutados:\n${subStepsContext}` : "",
+      [
+        "Instrucciones:",
+        "- Respondé en español.",
+        "- Integrá a tus subagentes como un solo frente coordinado.",
+        `- Mantené la salida ${rapidMode ? "corta" : "profunda pero concreta"}.`,
+        options.extraInstructions ?? "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
+    {
+      agentId,
+      maxOutputTokens: rapidMode ? 96 : agentId === "APEX" ? 160 : 132,
+      timeoutMs: rapidMode ? 3800 : agentId === "APEX" ? 6500 : 5200,
+      numCtx: operativeContext || subStepsContext ? 2048 : 1280,
+      temperature: 0.15,
+    }
+  );
+
+  if (!generation.text && subSteps.length === 0) {
+    return attachTeamData(
+      fallback(agentId, task, generation.errors.join(" | "), options.sources ?? []),
+      teamAssignments,
+      teamModeEnabled
+    );
+  }
+
+  const fallbackOutput = subSteps.length > 0 ? buildOutputFromSubSteps(agentId, task, subSteps, options.sources ?? []) : null;
+  const resolvedMessage = generation.text
+    ? stripThoughtTags(generation.text) || generation.text
+    : [
+        formatStructuredOutput(fallbackOutput!),
+        agentId === "SCOUT" && (options.sources ?? []).length > 0 ? sourceBlock(options.sources ?? []) : "",
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+  const output = generation.text
+    ? options.outputBuilder
+      ? options.outputBuilder(resolvedMessage, subSteps)
+      : deriveStructuredOutputFromMessage(agentId, task, resolvedMessage, options.sources ?? [])
+    : fallbackOutput!;
+
+  return attachTeamData(
+    {
+      agentId,
+      task,
+      provider: generation.text ? generation.provider : "stub",
+      thought:
+        subSteps.length > 0
+          ? `${agentId} ejecutó ${subSteps.length} subagentes internos${(options.sources ?? []).length ? ` sobre ${(options.sources ?? []).length} señales` : ""} para "${task}".`
+          : buildOperationalThought(agentId, task, teamAssignments, (options.sources ?? []).length),
+      message: resolvedMessage,
+      output,
+      ...(subSteps.length > 0 ? { subSteps } : {}),
+      ...(options.sources?.length ? { sources: options.sources.map(({ title, url, snippet }) => ({ title, url, snippet })) } : {}),
+    },
+    teamAssignments,
+    teamModeEnabled
+  );
+}
+
+async function runAriaDirect(task: string, roster: string, teamModeEnabled: boolean, plannerSubSteps: SubAgentStep[] = []) {
+  const planningContext = plannerSubSteps.length > 0 ? `Triage interno de ARIA:\n${buildSubStepsContext(plannerSubSteps)}` : "";
+  return runGeneric(
+    "ARIA",
+    task,
+    roster,
+    teamModeEnabled,
+    planningContext,
+    "- Respondé como cerebro principal y secretaria.\n- Si decidiste responder directo, cerrá sin pedir menciones manuales a otros agentes."
   );
 }
 
@@ -1183,21 +2281,24 @@ async function runGeneric(agentId: AgentId, task: string, roster: string, teamMo
   }
 
   const cleaned = stripThoughtTags(generation.text);
+  const resolvedMessage = cleaned || generation.text;
+  const output = deriveStructuredOutputFromMessage(agentId, task, resolvedMessage);
   return attachTeamData(
     {
       agentId,
       task,
       provider: generation.provider,
       thought: buildOperationalThought(agentId, task, teamAssignments),
-      message: cleaned || generation.text,
+      message: resolvedMessage,
+      output,
     },
     teamAssignments,
     teamModeEnabled
   );
 }
 
-async function runScout(task: string, roster: string, teamModeEnabled: boolean) {
-  const { teamAssignments, teamContext } = buildTeamContext("SCOUT", task, teamModeEnabled);
+async function runScout(task: string, roster: string, teamModeEnabled: boolean, rapidMode = false) {
+  const { teamAssignments } = buildTeamContext("SCOUT", task, teamModeEnabled);
 
   let results: SearchResult[] = [];
   let searchError = "";
@@ -1216,17 +2317,18 @@ async function runScout(task: string, roster: string, teamModeEnabled: boolean) 
     );
   }
 
-  const extractiveMessage = buildScoutExtractiveResponse(task, results);
   const synthesisMode = getScoutSynthesisMode();
-
-  if (synthesisMode === "extractive") {
+  const shouldKeepExtractive = synthesisMode === "extractive" && !teamModeEnabled && !rapidMode;
+  if (shouldKeepExtractive) {
+    const message = buildScoutExtractiveResponse(task, results);
     return attachTeamData(
       {
         agentId: "SCOUT",
         task,
         provider: "stub",
         thought: buildOperationalThought("SCOUT", task, teamAssignments, results.length),
-        message: extractiveMessage,
+        message,
+        output: buildScoutStructuredOutput(task, results, message),
         sources: results.map(({ title, url, snippet }) => ({ title, url, snippet })),
       },
       teamAssignments,
@@ -1234,152 +2336,108 @@ async function runScout(task: string, roster: string, teamModeEnabled: boolean) 
     );
   }
 
-  const generation = await tryGenerateWithOptions(
-    `${AGENT_PROMPTS.SCOUT}${roster}\nActuás como un investigador estilo Perplexity: navegás, contrastás y citás solo lo que aparece en fuentes reales.`,
-    [
-      `Consulta:\n${task}`,
-      teamContext ? `Contexto de squad:\n${teamContext}` : "",
-      `Contexto web:\n${scoutContextBlock(results)}`,
-      "Instrucciones:\n- Respondé con: Resumen ejecutivo, Hallazgos clave, Oportunidades, Riesgos y Fuentes.\n- Citá afirmaciones con [1], [2], etc.\n- Si algo no está soportado por las fuentes, no lo inventes.\n- Mantené la respuesta en no más de 7 bullets.",
-    ]
-      .filter(Boolean)
-      .join("\n\n"),
-    {
-      agentId: "SCOUT",
-      maxOutputTokens: 120,
-      timeoutMs: 12000,
-      numCtx: 2048,
-    }
-  );
+  const step = await runLeadWithSubAgents("SCOUT", task, roster, teamModeEnabled, {
+    context: scoutContextBlock(results),
+    sources: results,
+    rapidMode,
+    extraInstructions:
+      "Respondé con Resumen ejecutivo, Hallazgos clave, Oportunidades, Riesgos y Fuentes. No inventes datos fuera de las señales encontradas.",
+    subAgentExtraInstructions:
+      "- Basate solo en el contexto web provisto.\n- No inventes fuentes ni URLs.\n- Si algo no está soportado, dejalo como hipótesis.",
+    outputBuilder: (message) => buildScoutStructuredOutput(task, results, message),
+  });
 
-  if (!generation.text) {
-    return attachTeamData(
-      {
-        agentId: "SCOUT",
-        task,
-        provider: "stub",
-        thought: `${buildOperationalThought("SCOUT", task, teamAssignments, results.length)} La síntesis volvió en modo extractivo por presupuesto de tiempo.`,
-        message: extractiveMessage,
-        sources: results.map(({ title, url, snippet }) => ({ title, url, snippet })),
-      },
-      teamAssignments,
-      teamModeEnabled
-    );
-  }
-
-  const cleaned = stripThoughtTags(generation.text);
-  const message = /fuentes:/i.test(cleaned) ? cleaned : `${cleaned}\n\n${sourceBlock(results)}`.trim();
-
-  return attachTeamData(
-    {
-      agentId: "SCOUT",
-      task,
-      provider: generation.provider,
-      thought: buildOperationalThought("SCOUT", task, teamAssignments, results.length),
-      message,
-      sources: results.map(({ title, url, snippet }) => ({ title, url, snippet })),
-    },
-    teamAssignments,
-    teamModeEnabled
-  );
+  const message = /fuentes:/i.test(step.message) ? step.message : `${step.message}\n\n${sourceBlock(results)}`.trim();
+  return {
+    ...step,
+    message,
+    output: buildScoutStructuredOutput(task, results, message),
+    sources: results.map(({ title, url, snippet }) => ({ title, url, snippet })),
+  };
 }
 
-async function runApex(task: string, roster: string, teamModeEnabled: boolean) {
-  const context = await repoContext(task);
-  return runGeneric(
-    "APEX",
-    task,
-    roster,
-    teamModeEnabled,
-    context || "No encontré matches claros en el repo actual.",
-    "- Si proponés cambios, nombrá archivos o áreas afectadas.\n- Cerrá con validaciones o riesgos concretos."
-  );
+async function runApex(task: string, roster: string, teamModeEnabled: boolean, rapidMode = false) {
+  const context = (await repoContext(task)) || "No encontré matches claros en el repo actual.";
+  const step = await runLeadWithSubAgents("APEX", task, roster, teamModeEnabled, {
+    context,
+    rapidMode,
+    extraInstructions:
+      "- Si proponés cambios, nombrá archivos o áreas afectadas.\n- Cerrá con validaciones o riesgos concretos.",
+    subAgentExtraInstructions:
+      "- Basate solo en el contexto del repo actual.\n- Si aparece un archivo o superficie concreta, nombralo.\n- Priorizá corrección mínima y validación.",
+    outputBuilder: (message) => buildApexStructuredOutput(task, context, message),
+  });
+
+  return {
+    ...step,
+    output: buildApexStructuredOutput(task, context, step.message),
+  };
 }
 
-async function runRapidScout(task: string, teamModeEnabled: boolean) {
-  const { teamAssignments } = buildTeamContext("SCOUT", task, teamModeEnabled);
-
-  try {
-    const results = await searchWeb(task);
-    if (results.length === 0) {
-      return attachTeamData(fallback("SCOUT", task, "No se obtuvo contexto web útil"), teamAssignments, teamModeEnabled);
-    }
-
-    return attachTeamData(
-      {
-        agentId: "SCOUT",
-        task,
-        provider: "stub",
-        thought: `${buildOperationalThought("SCOUT", task, teamAssignments, results.length)} Ejecuté modo rápido para no frenar al resto de agentes principales.`,
-        message: buildScoutExtractiveResponse(task, results.slice(0, 4)),
-        sources: results.slice(0, 4).map(({ title, url, snippet }) => ({ title, url, snippet })),
-      },
-      teamAssignments,
-      teamModeEnabled
-    );
-  } catch (error) {
-    return attachTeamData(fallback("SCOUT", task, getErrorMessage(error)), teamAssignments, teamModeEnabled);
-  }
-}
-
-async function runRapidSpecialist(agentId: Exclude<AgentId, "ARIA" | "SCOUT" | "APEX">, task: string, teamModeEnabled: boolean) {
-  const { teamAssignments } = buildTeamContext(agentId, task, teamModeEnabled);
-  return attachTeamData(
-    {
+async function runSpecialist(agentId: Exclude<AgentId, "ARIA" | "SCOUT" | "APEX">, task: string, roster: string, teamModeEnabled: boolean, rapidMode = false) {
+  if (rapidMode && !teamModeEnabled) {
+    const message = buildRapidSpecialistResponse(agentId, task);
+    return {
       agentId,
       task,
-      provider: "stub",
-      thought: buildOperationalThought(agentId, task, teamAssignments),
-      message: buildRapidSpecialistResponse(agentId, task),
-    },
-    teamAssignments,
-    teamModeEnabled
-  );
-}
+      provider: "stub" as ProviderId,
+      thought: `${agentId} respondió en modo rápido local para no bloquear el handoff.`,
+      message,
+      output: deriveStructuredOutputFromMessage(agentId, task, message),
+    };
+  }
 
-async function runRapidApex(task: string, teamModeEnabled: boolean) {
-  const { teamAssignments } = buildTeamContext("APEX", task, teamModeEnabled);
-  const context = await repoContext(task);
-  return attachTeamData(
-    {
-      agentId: "APEX",
-      task,
-      provider: "stub",
-      thought: buildOperationalThought("APEX", task, teamAssignments),
-      message: buildApexExtractiveResponse(task, context),
-    },
-    teamAssignments,
-    teamModeEnabled
-  );
+  const extraInstructionsMap: Record<Exclude<AgentId, "ARIA" | "SCOUT" | "APEX">, string> = {
+    VERA: "- Convertí la lectura en señal, riesgo y decisión. Priorizá claridad sobre volumen.",
+    ZION: "- Priorizá trade-offs, secuencia y foco. No abras más frentes de los necesarios.",
+    FORGE: "- Bajá la respuesta a trigger, handoff, ejecución y confiabilidad. Priorizá local y gratis cuando aparezca n8n o Docker.",
+    ECHO: "- Cerrá con una propuesta comunicacional concreta, con una sola CTA fuerte.",
+    VOX: "- Transformá el brief en hook, estructura y CTA sin dispersarte.",
+  };
+  const subAgentInstructionsMap: Record<Exclude<AgentId, "ARIA" | "SCOUT" | "APEX">, string> = {
+    VERA: "- Aislá señal principal, desviación y lectura ejecutiva.",
+    ZION: "- Aislá opción, trade-off y orden de decisión.",
+    FORGE: "- Aislá workflow, integración y confiabilidad.",
+    ECHO: "- Aislá tono, mensaje y cierre.",
+    VOX: "- Aislá hook, formato y CTA.",
+  };
+
+  return runLeadWithSubAgents(agentId, task, roster, teamModeEnabled, {
+    rapidMode,
+    extraInstructions: extraInstructionsMap[agentId],
+    subAgentExtraInstructions: subAgentInstructionsMap[agentId],
+  });
 }
 
 async function execute(agentId: AgentId, task: string, roster: string, teamModeEnabled: boolean, rapidMode = false) {
-  if (agentId === "SCOUT") return rapidMode ? runRapidScout(task, teamModeEnabled) : runScout(task, roster, teamModeEnabled);
-  if (agentId === "APEX") return rapidMode ? runRapidApex(task, teamModeEnabled) : runApex(task, roster, teamModeEnabled);
-  if (rapidMode && agentId !== "ARIA") {
-    return runRapidSpecialist(agentId as Exclude<AgentId, "ARIA" | "SCOUT" | "APEX">, task, teamModeEnabled);
-  }
-  if (agentId === "FORGE") {
-    return runGeneric("FORGE", task, roster, teamModeEnabled, "", "- Si aparece n8n o Docker, priorizá flujo local y gratis.");
+  if (agentId === "SCOUT") return runScout(task, roster, teamModeEnabled, rapidMode);
+  if (agentId === "APEX") return runApex(task, roster, teamModeEnabled, rapidMode);
+  if (agentId === "FORGE" || agentId === "VERA" || agentId === "ZION" || agentId === "ECHO" || agentId === "VOX") {
+    return runSpecialist(agentId, task, roster, teamModeEnabled, rapidMode);
   }
   if (agentId === "ARIA") {
-    return runGeneric(
-      "ARIA",
-      task,
-      roster,
-      teamModeEnabled,
-      "",
-      "- Respondé como cerebro principal y secretaria.\n- Si conviene delegar, sugerí el especialista adecuado en una línea final."
-    );
+    return runAriaDirect(task, roster, teamModeEnabled);
   }
   return runGeneric(agentId, task, roster, teamModeEnabled);
 }
 
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const parsedLimit = Number.parseInt(searchParams.get("limit") ?? "6", 10);
+  const limit = Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 12) : 6;
+  const runs = await listRecentOrchestratorRuns(limit);
+
+  return NextResponse.json({ runs });
+}
+
 export async function POST(req: Request) {
+  const runId = createRunId();
+  const routeStartedAtMs = Date.now();
+
   try {
     const body = (await req.json()) as OrchestratorRequest;
     if (typeof body.prompt !== "string" || !body.prompt.trim()) {
-      return NextResponse.json({ error: "Prompt inválido." }, { status: 400 });
+      return NextResponse.json({ runId, error: "Prompt inválido." }, { status: 400 });
     }
 
     const currentAgents = Array.isArray(body.currentAgents) ? body.currentAgents.filter(isAgentDescriptor) : [];
@@ -1387,67 +2445,130 @@ export async function POST(req: Request) {
     const teamModeEnabled = isTeamModeEnabled(body.teamMode);
     const structuredResponse = getStructuredAriaResponse(prompt, teamModeEnabled);
     if (structuredResponse) {
-      return NextResponse.json({ steps: structuredResponse });
+      const instantRoutePlan: RoutePlan = {
+        entry: "ARIA",
+        delegatedAgents: [],
+        task: prompt,
+      };
+      const steps = structuredResponse.map((step) => attachStepMeta(step, runId, routeStartedAtMs));
+      const trace = buildRouteTrace(runId, instantRoutePlan, routeStartedAtMs, steps);
+      await persistObservedRun({
+        runId,
+        prompt,
+        routePlan: instantRoutePlan,
+        teamModeEnabled,
+        decisionSource: "structured_shortcut",
+        status: "completed",
+        routeStartedAtMs,
+        steps,
+        trace,
+      });
+      return NextResponse.json({ runId, steps, trace });
     }
     const fastResponse = getFastAriaResponse(prompt, teamModeEnabled);
     if (fastResponse) {
-      return NextResponse.json({ steps: fastResponse });
+      const instantRoutePlan: RoutePlan = {
+        entry: "ARIA",
+        delegatedAgents: [],
+        task: prompt,
+      };
+      const steps = fastResponse.map((step) => attachStepMeta(step, runId, routeStartedAtMs));
+      const trace = buildRouteTrace(runId, instantRoutePlan, routeStartedAtMs, steps);
+      await persistObservedRun({
+        runId,
+        prompt,
+        routePlan: instantRoutePlan,
+        teamModeEnabled,
+        decisionSource: "fast_path",
+        status: "completed",
+        routeStartedAtMs,
+        steps,
+        trace,
+      });
+      return NextResponse.json({ runId, steps, trace });
     }
 
-    const routePlan = plan(prompt);
     const roster = rosterContext(currentAgents);
+    const plannedRoute = await planWithAria(prompt, roster, teamModeEnabled);
+    const routePlan = plannedRoute.routePlan;
     const steps: AgentStep[] = [];
 
-    if (routePlan.delegatedAgents.length > 0) {
-      const delegatedMentions = joinAgentMentions(routePlan.delegatedAgents);
-      const delegationLabel = routePlan.delegatedAgents.map((agentId) => AGENT_LABELS[agentId]).join(", ");
+    if (plannedRoute.usedModelPlanner || plannedRoute.plannerSubSteps.length > 0) {
+      const ariaPlanningStartedAtMs = Date.now();
+      const delegatedLabel = joinAgentMentions(routePlan.delegatedAgents);
       steps.push(
-        buildAriaStep(
-          routePlan.task,
-          routePlan.delegatedAgents.length === 1
-            ? `Recibido. Tomo el pedido como secretaria central y lo derivo a ${delegatedMentions} como agente principal.\n\nEncargo: ${routePlan.task}`
-            : `Recibido. Activo a ${delegatedMentions} como agentes principales en paralelo para cubrir el pedido desde varios frentes.\n\nEncargo compartido: ${routePlan.task}`,
-          routePlan.delegatedAgents.length === 1
-            ? `INBOX clasificó la intención. SWITCH asignó ${delegationLabel} y LEDGER abrió seguimiento para que el pedido no pierda contexto.`
-            : `INBOX detectó un pedido multi-frente. SWITCH activó ${delegationLabel} como lanes de trabajo y LEDGER dejó coordinación abierta para consolidar resultados sin sumar latencia.`,
-          teamModeEnabled,
-          {
-            zone: "collab",
-            statusDetail:
-              routePlan.delegatedAgents.length === 1
-                ? "DERIVANDO A PRINCIPAL"
-                : `DERIVANDO A ${routePlan.delegatedAgents.length} PRINCIPALES`,
-            handoffTargets: routePlan.delegatedAgents,
-          }
+        attachStepMeta(
+          buildAriaStep(
+            routePlan.task,
+            routePlan.delegatedAgents.length > 0
+              ? `Recibido. ARIA abrió triage interno y deriva este pedido a ${delegatedLabel}.\n\nEncargo coordinado: ${routePlan.task}${
+                  plannedRoute.plannerReason ? `\n\nCriterio: ${plannedRoute.plannerReason}` : ""
+                }`
+              : `Recibido. ARIA abrió triage interno y toma este pedido en forma directa.\n\nEncargo: ${routePlan.task}${
+                  plannedRoute.plannerReason ? `\n\nCriterio: ${plannedRoute.plannerReason}` : ""
+                }`,
+            plannedRoute.usedModelPlanner
+              ? `INBOX, SWITCH y LEDGER evaluaron el pedido. ${plannedRoute.plannerReason}`
+              : plannedRoute.plannerReason,
+            teamModeEnabled,
+            {
+              zone: "collab",
+              statusDetail:
+                routePlan.delegatedAgents.length > 0
+                  ? `DERIVANDO A ${routePlan.delegatedAgents.length} PRINCIPALES`
+                  : "TRIAGE DIRECTO",
+              ...(routePlan.delegatedAgents.length > 0 ? { handoffTargets: routePlan.delegatedAgents } : {}),
+            },
+            undefined,
+            plannedRoute.plannerSubSteps
+          ),
+          runId,
+          ariaPlanningStartedAtMs
         )
       );
+    }
 
-      const delegatedResults = await Promise.allSettled(
-        routePlan.delegatedAgents.map((agentId, index) =>
-          withTimeout(
+    if (routePlan.delegatedAgents.length > 0) {
+      const delegatedTasks = routePlan.delegatedAgents.map((agentId, index) => {
+        const startedAtMs = Date.now();
+        return {
+          agentId,
+          index,
+          startedAtMs,
+          promise: withTimeout(
             execute(agentId, routePlan.task, roster, teamModeEnabled, routePlan.delegatedAgents.length > 1).then((step) =>
-              attachCoordinationData(step, {
-                lane: getLeadLane(index),
-                zone: "collab",
-                interactionTargetId: "aria",
-                statusDetail: getLeadStatusLabel(agentId, getLeadLane(index)),
-              })
+              attachStepMeta(
+                attachCoordinationData(step, {
+                  lane: getLeadLane(index),
+                  zone: "collab",
+                  interactionTargetId: "aria",
+                  statusDetail: getLeadStatusLabel(agentId, getLeadLane(index)),
+                }),
+                runId,
+                startedAtMs
+              )
             ),
             routePlan.delegatedAgents.length > 1 ? 4500 : 5000,
             () =>
-              attachCoordinationData(fallback(agentId, routePlan.task, "Timeout operativo > 5s"), {
-                lane: getLeadLane(index),
-                zone: "collab",
-                interactionTargetId: "aria",
-                statusDetail: getLeadStatusLabel(agentId, getLeadLane(index)),
-              })
-          )
-        )
-      );
+              attachStepMeta(
+                attachCoordinationData(fallback(agentId, routePlan.task, "Timeout operativo > 5s"), {
+                  lane: getLeadLane(index),
+                  zone: "collab",
+                  interactionTargetId: "aria",
+                  statusDetail: getLeadStatusLabel(agentId, getLeadLane(index)),
+                }),
+                runId,
+                startedAtMs
+              )
+          ),
+        };
+      });
 
+      const delegatedResults = await Promise.allSettled(delegatedTasks.map((task) => task.promise));
       const fulfilledSteps: AgentStep[] = [];
+
       delegatedResults.forEach((result, index) => {
-        const agentId = routePlan.delegatedAgents[index];
+        const delegatedTask = delegatedTasks[index];
         if (result.status === "fulfilled") {
           fulfilledSteps.push(result.value);
           steps.push(result.value);
@@ -1455,47 +2576,105 @@ export async function POST(req: Request) {
         }
 
         steps.push(
-          attachCoordinationData(fallback(agentId, routePlan.task, getErrorMessage(result.reason)), {
-            lane: getLeadLane(index),
-            zone: "collab",
-            interactionTargetId: "aria",
-            statusDetail: getLeadStatusLabel(agentId, getLeadLane(index)),
-          })
+          attachStepMeta(
+            attachCoordinationData(fallback(delegatedTask.agentId, routePlan.task, getErrorMessage(result.reason)), {
+              lane: getLeadLane(delegatedTask.index),
+              zone: "collab",
+              interactionTargetId: "aria",
+              statusDetail: getLeadStatusLabel(delegatedTask.agentId, getLeadLane(delegatedTask.index)),
+            }),
+            runId,
+            delegatedTask.startedAtMs
+          )
         );
       });
 
+      const ariaOutput = buildAriaStructuredOutput(routePlan.task, fulfilledSteps);
+      const ariaWrapUpStartedAtMs = Date.now();
       steps.push(
-        buildAriaStep(
-          routePlan.task,
-          buildAriaLeadWrapUp(routePlan.task, fulfilledSteps),
-          routePlan.delegatedAgents.length === 1
-            ? `ARIA cerró el handoff con ${routePlan.delegatedAgents[0]} y devolvió el resumen consolidado.`
-            : `ARIA sincronizó ${routePlan.delegatedAgents.length} lanes, deduplicó hallazgos y devolvió un cierre único para "${routePlan.task}".`,
-          teamModeEnabled,
-          {
-            zone: "collab",
-            statusDetail: routePlan.delegatedAgents.length === 1 ? "CIERRE PRINCIPAL" : `SYNC ${routePlan.delegatedAgents.length} LANES`,
-            handoffTargets: routePlan.delegatedAgents,
-          }
+        attachStepMeta(
+          buildAriaStep(
+            routePlan.task,
+            buildAriaLeadWrapUp(routePlan.task, fulfilledSteps),
+            routePlan.delegatedAgents.length === 1
+              ? `ARIA cerró el handoff con ${routePlan.delegatedAgents[0]} y devolvió el output consolidado sin reescribir la evidencia.`
+              : `ARIA sincronizó ${routePlan.delegatedAgents.length} lanes, deduplicó artifacts y devolvió un cierre trazable para "${routePlan.task}".`,
+            teamModeEnabled,
+            {
+              zone: "collab",
+              statusDetail:
+                routePlan.delegatedAgents.length === 1 ? "CIERRE PRINCIPAL" : `SYNC ${routePlan.delegatedAgents.length} LANES`,
+              handoffTargets: routePlan.delegatedAgents,
+            },
+            ariaOutput
+          ),
+          runId,
+          ariaWrapUpStartedAtMs
         )
       );
     } else {
-      steps.push(await execute("ARIA", routePlan.task, roster, teamModeEnabled));
+      const ariaStartedAtMs = Date.now();
+      steps.push(
+        attachStepMeta(
+          await runAriaDirect(routePlan.task, roster, teamModeEnabled, plannedRoute.plannerSubSteps),
+          runId,
+          ariaStartedAtMs
+        )
+      );
     }
 
-    return NextResponse.json({ steps });
+    const trace = buildRouteTrace(runId, routePlan, routeStartedAtMs, steps);
+    await persistObservedRun({
+      runId,
+      prompt,
+      routePlan,
+      teamModeEnabled,
+      decisionSource: "planner",
+      status: "completed",
+      routeStartedAtMs,
+      steps,
+      trace,
+    });
+
+    return NextResponse.json({ runId, steps, trace });
   } catch (error) {
     console.error("Error en el Orquestador:", error);
+    const fallbackStartedAtMs = Date.now();
+    const fallbackStep = attachStepMeta(
+      {
+        agentId: "ARIA",
+        task: "soporte",
+        provider: "stub",
+        thought: `Hubo un error en el backend. ${getErrorMessage(error)}`,
+        message: "La oficina sigue en pie, pero este pedido falló. Probá otra vez y, si persiste, reviso el orquestador.",
+      },
+      runId,
+      fallbackStartedAtMs
+    );
+    const fallbackRoutePlan: RoutePlan = {
+      entry: "ARIA",
+      delegatedAgents: [],
+      task: "soporte",
+    };
+    const trace = buildRouteTrace(runId, fallbackRoutePlan, routeStartedAtMs, [fallbackStep]);
+
+    await persistObservedRun({
+      runId,
+      prompt: "error",
+      routePlan: fallbackRoutePlan,
+      teamModeEnabled: false,
+      decisionSource: "error",
+      status: "error",
+      routeStartedAtMs,
+      steps: [fallbackStep],
+      trace,
+      error: getErrorMessage(error),
+    });
+
     return NextResponse.json({
-      steps: [
-        {
-          agentId: "ARIA",
-          task: "soporte",
-          provider: "stub",
-          thought: `Hubo un error en el backend. ${getErrorMessage(error)}`,
-          message: "La oficina sigue en pie, pero este pedido falló. Probá otra vez y, si persiste, reviso el orquestador.",
-        },
-      ],
+      runId,
+      steps: [fallbackStep],
+      trace,
     });
   }
 }
