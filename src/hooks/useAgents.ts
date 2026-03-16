@@ -50,6 +50,18 @@ type OrchestratorStepTracePayload = {
   durationMs: number;
 };
 
+type OrchestratorSubStepPayload = {
+  subAgentId: string;
+  subAgentName: string;
+  subAgentRole: string;
+  objective: string;
+  thought: string;
+  message: string;
+  provider: string;
+  output?: OrchestratorStructuredOutput;
+  trace?: OrchestratorStepTracePayload;
+};
+
 type OrchestratorStepPayload = {
   agentId: string;
   task: string;
@@ -59,6 +71,7 @@ type OrchestratorStepPayload = {
   runId?: string;
   output?: OrchestratorStructuredOutput;
   trace?: OrchestratorStepTracePayload;
+  subSteps?: OrchestratorSubStepPayload[];
   teamAssignments?: TeamAssignment[];
   teamModeUsed?: boolean;
   lane?: AgentLane;
@@ -150,7 +163,15 @@ function getNextTeamModeValue(cmd: string, currentValue: boolean) {
 }
 
 function estimateTokenUnits(steps: OrchestratorStepPayload[]) {
-  const characters = steps.reduce((total, step) => total + step.task.length + step.message.length + step.thought.length, 0);
+  const characters = steps.reduce(
+    (total, step) =>
+      total +
+      step.task.length +
+      step.message.length +
+      step.thought.length +
+      (step.subSteps?.reduce((subTotal, subStep) => subTotal + subStep.message.length + subStep.thought.length, 0) ?? 0),
+    0
+  );
   return Math.ceil(characters / 4);
 }
 
@@ -357,6 +378,17 @@ export function useAgents() {
               }
               if (step.sources?.length && agent.id === "aria") {
                 logs.push(createLog("system", `${Math.min(step.sources.length, 4)} fuentes verificadas.`));
+              }
+              if (step.subSteps?.length) {
+                logs.push(createLog("system", `Subagentes: ${step.subSteps.map((subStep) => subStep.subAgentName).join(", ")}`));
+                logs.push(
+                  ...step.subSteps.slice(0, 3).map((subStep) =>
+                    createLog(
+                      "system",
+                      `${subStep.subAgentName} -> ${subStep.output?.summary || subStep.message.split("\n")[0] || subStep.objective}`
+                    )
+                  )
+                );
               }
               if (step.message.trim()) {
                 logs.push(createLog("communication", step.message.trim()));

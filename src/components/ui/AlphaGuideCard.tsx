@@ -12,19 +12,19 @@ const DEMO_PROMPTS = [
     label: "Oferta alpha",
     focus: "definir promesa, alcance y mensaje comercial",
     prompt:
-      "@aria activa a @zion y @echo para definir la oferta alpha de este orquestador, su promesa comercial y un mensaje breve para venderlo sin sobreprometer",
+      "Definí la oferta alpha de este orquestador, su promesa comercial y un mensaje breve para venderlo sin sobreprometer.",
   },
   {
     label: "Demo con n8n",
     focus: "mostrar un caso real de operacion automatizada",
     prompt:
-      "@aria activa a @forge, @apex y @zion para convertir este alpha en una demo funcional con n8n, dejando alcance, flujo y limites claros para un cliente piloto",
+      "Convertí este alpha en una demo funcional con n8n, dejando alcance, flujo y límites claros para un cliente piloto.",
   },
   {
     label: "Prospeccion",
     focus: "investigar una cuenta y salir con siguiente accion",
     prompt:
-      "@aria activa a @scout, @zion y @echo para investigar un prospecto, detectar oportunidad y redactar un primer mensaje comercial listo para enviar",
+      "Investigá un prospecto, detectá la oportunidad y redactá un primer mensaje comercial listo para enviar.",
   },
 ];
 

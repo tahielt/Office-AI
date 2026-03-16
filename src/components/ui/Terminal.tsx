@@ -306,13 +306,13 @@ export default function Terminal({ agents, teamModeEnabled, onCommand }: Props) 
             {[
               { cmd: "/team_mode", label: "Agents Team" },
               { cmd: "/dismiss", label: "Reset visual" },
-              { cmd: "@aria activa a @zion y @echo para definir la oferta alpha de este orquestador y un mensaje comercial corto", label: "Oferta alpha" },
-              { cmd: "@aria activa a @scout, @zion y @echo para investigar un prospecto y redactar un mensaje de entrada", label: "Prospeccion" },
-              { cmd: "@aria activa a @forge, @apex y @zion para convertir este alpha en una demo funcional con n8n", label: "Demo n8n" },
-              { cmd: "@aria decile a @scout que investigue competencia", label: "Scout" },
-              { cmd: "@aria pedile a @apex que revise el backend", label: "Apex" },
-              { cmd: "@aria activa a @scout y @zion para investigar y definir estrategia", label: "2 Agentes" },
-              { cmd: "@aria activa a @scout, @zion y @forge para investigar, definir estrategia y bajar un workflow", label: "3 Agentes" },
+              { cmd: "Definí la oferta alpha de este orquestador y un mensaje comercial corto.", label: "Oferta alpha" },
+              { cmd: "Investigá un prospecto y redactá un mensaje de entrada.", label: "Prospeccion" },
+              { cmd: "Convertí este alpha en una demo funcional con n8n.", label: "Demo n8n" },
+              { cmd: "Investigá la competencia de este producto.", label: "Scout" },
+              { cmd: "Revisá el backend y detectá la superficie mínima a tocar.", label: "Apex" },
+              { cmd: "Investigá este frente y definí una estrategia concreta.", label: "2 Agentes" },
+              { cmd: "Investigá, definí estrategia y bajá un workflow accionable.", label: "3 Agentes" },
             ].map(({ cmd, label }) => (
               <button
                 key={cmd}
@@ -339,7 +339,7 @@ export default function Terminal({ agents, teamModeEnabled, onCommand }: Props) 
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Hablá con @aria. Puede activar 2 o 3 agentes principales y mantener la respuesta corta..."
+              placeholder="Hablá con ARIA directamente. Ella decide si responde sola o si activa otros agentes..."
               className="flex-1 bg-transparent font-mono text-[12px] focus:outline-none placeholder:text-white/20"
               style={{ color: "#e2e8f0" }}
             />
