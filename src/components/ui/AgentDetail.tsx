@@ -15,13 +15,11 @@ export default function AgentDetail({ agent, tasks, onClose }: Props) {
 
   return (
     <div className="flex flex-col h-full bg-black/40 border border-white/10 rounded-xl panel relative overflow-hidden">
-      {/* Decorative top border */}
       <div 
         className="absolute top-0 left-0 w-full h-1" 
         style={{ backgroundColor: agent.color }} 
       />
 
-      {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-white/5">
         <div className="flex items-center gap-3">
           <Activity className="w-4 h-4" style={{ color: agent.color }} />
@@ -38,7 +36,6 @@ export default function AgentDetail({ agent, tasks, onClose }: Props) {
       </div>
 
       <div className="p-4 flex-1 overflow-y-auto space-y-6">
-        {/* Status */}
         <div className="flex items-center justify-between">
           <div className="text-[10px] text-white/30 tracking-widest font-mono">STATUS</div>
           <div className="px-2 py-1 bg-black/50 rounded border border-white/5 text-[10px] uppercase font-mono tracking-widest" style={{ color: statusInfo.color }}>
@@ -46,7 +43,6 @@ export default function AgentDetail({ agent, tasks, onClose }: Props) {
           </div>
         </div>
 
-        {/* Console view */}
         <div className="bg-black/80 rounded border border-white/5 p-3 min-h-[120px] font-mono text-[10px] leading-relaxed space-y-1">
           <div className="text-white/20 mb-2">-- LIVE OUTPUT --</div>
           {agent.log.map((entry) => (
@@ -62,7 +58,6 @@ export default function AgentDetail({ agent, tasks, onClose }: Props) {
           </div>
         </div>
 
-        {/* Task History */}
         <div>
           <div className="text-[10px] text-white/30 tracking-widest font-mono mb-3">RECENT ACTIVITY</div>
           <div className="space-y-2">

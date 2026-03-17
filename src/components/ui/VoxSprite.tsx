@@ -47,63 +47,47 @@ export function VoxSprite({ animation = "idle", isActive = false }: VoxProps) {
         </clipPath>
       </defs>
 
-      {/* ── CUERPO ── */}
       <g style={{ animation: "vox-bob 2.8s ease-in-out infinite", transformOrigin: "32px 40px" }}>
-
-        {/* Torso */}
         <rect x="18" y="22" width="28" height="34" rx="5"
           fill="url(#vox-body)" stroke="#a855f7" strokeWidth="1.2" opacity="0.9"/>
 
-        {/* Hombros — más anchos, estilo broadcast */}
         <rect x="12" y="26" width="8"  height="14" rx="3" fill="#1e0a2e" stroke="#a855f7" strokeWidth="0.8" opacity="0.8"/>
         <rect x="44" y="26" width="8"  height="14" rx="3" fill="#1e0a2e" stroke="#a855f7" strokeWidth="0.8" opacity="0.8"/>
 
-        {/* Cabeza */}
         <rect x="19" y="6" width="26" height="20" rx="6"
           fill="#1e0a2e" stroke="#a855f7" strokeWidth="1.2" opacity="0.95"/>
 
-        {/* ── CÁMARA — ojo principal centrado ── */}
         <circle cx="32" cy="14" r="7" fill="#0d0118" stroke="#a855f7" strokeWidth="1" opacity="0.95"/>
-        {/* Lente */}
         <circle cx="32" cy="14" r="5" fill="#1a0030" stroke="#c084fc" strokeWidth="0.6"
           style={{ animation: "vox-lens 2s ease-in-out infinite" }} filter="url(#vox-glow)"/>
         <circle cx="32" cy="14" r="3" fill="#a855f7" opacity="0.5"/>
         <circle cx="32" cy="14" r="1.5" fill="#e9d5ff" opacity="0.9" filter="url(#vox-glow)"/>
-        {/* Reflejo lente */}
         <circle cx="30" cy="12" r="0.8" fill="#ffffff" opacity="0.7"/>
 
-        {/* REC indicator — parpadea cuando activo */}
         <circle cx="42" cy="8" r="2.5" fill="#ff4466"
           style={{ animation: isActive ? "vox-record 1s ease-in-out infinite" : "none", opacity: isActive ? 1 : 0.3 }}
           filter="url(#vox-glow)"/>
         <rect x="38" y="7" width="3" height="1.5" rx="0.5" fill="#ff4466" opacity="0.7"/>
 
-        {/* Micrófono lateral derecho */}
         <rect x="44" y="8" width="3" height="8" rx="1.5" fill="#c084fc" opacity="0.6"/>
         <rect x="43.5" y="7" width="4" height="1.5" rx="1" fill="#a855f7" opacity="0.5"/>
 
-        {/* ── PANTALLA PECHO — ticker de contenido ── */}
         <rect x="20" y="36" width="24" height="16" rx="2"
           fill="#0d0118" stroke="#a855f7" strokeWidth="0.8" opacity="0.9"/>
 
-        {/* Plataformas — íconos minimalistas */}
-        {/* Instagram — círculo con punto */}
         <circle cx="26" cy="41" r="3" fill="none" stroke="#c084fc" strokeWidth="0.8" opacity="0.8"/>
         <circle cx="26" cy="41" r="1" fill="#c084fc" opacity="0.7"/>
         <circle cx="28.2" cy="38.8" r="0.6" fill="#c084fc" opacity="0.9"/>
 
-        {/* LinkedIn — rectángulo in */}
         <rect x="30" y="38" width="5" height="5" rx="0.8" fill="none" stroke="#c084fc" strokeWidth="0.8" opacity="0.7"/>
         <rect x="31" y="39.5" width="1" height="3" rx="0.3" fill="#c084fc" opacity="0.8"/>
         <rect x="32.5" y="40" width="1.5" height="2.5" rx="0.3" fill="#c084fc" opacity="0.7"/>
 
-        {/* Barra de progreso upload */}
         <rect x="22" y="46" width="20" height="2" rx="1" fill="#1e0a2e" opacity="0.8"/>
         <rect x="22" y="46" width={isActive ? "16" : "10"} height="2" rx="1"
           fill="#a855f7" opacity="0.9"
           style={{ transition: "width 0.5s ease" }} filter="url(#vox-glow)"/>
 
-        {/* Ticker de texto con clip */}
         <g clipPath="url(#vox-chest-clip)">
           <text x="22" y="52" fontSize="3.5" fill="#c084fc" opacity="0.5"
             style={{ animation: "vox-ticker 4s linear infinite" }}>
@@ -111,31 +95,25 @@ export function VoxSprite({ animation = "idle", isActive = false }: VoxProps) {
           </text>
         </g>
 
-        {/* ── BRAZO IZQUIERDO — sostiene cámara de mano ── */}
         <rect x="9" y="30" width="5" height="18" rx="2.5"
           fill="#1e0a2e" stroke="#a855f7" strokeWidth="0.7" opacity="0.85"
           style={{ animation: animation === "typing" ? "vox-type 0.25s ease-in-out infinite" : "none",
                    transformOrigin: "11.5px 30px" }}/>
-        {/* Mini cámara en mano */}
         <rect x="6" y="44" width="8" height="5" rx="1.5"
           fill="#2d0a4e" stroke="#c084fc" strokeWidth="0.6" opacity="0.8"/>
         <circle cx="10" cy="46.5" r="1.5" fill="#a855f7" opacity="0.6"/>
 
-        {/* ── BRAZO DERECHO ── */}
         <rect x="50" y="30" width="5" height="18" rx="2.5"
           fill="#1e0a2e" stroke="#a855f7" strokeWidth="0.7" opacity="0.85"
           style={{ animation: animation === "typing" ? "vox-type 0.25s ease-in-out infinite 0.125s" : "none",
                    transformOrigin: "52.5px 30px" }}/>
 
-        {/* ── PIERNAS ── */}
         <rect x="23" y="55" width="8"  height="14" rx="3" fill="#1e0a2e" stroke="#a855f7" strokeWidth="0.7" opacity="0.8"/>
         <rect x="33" y="55" width="8"  height="14" rx="3" fill="#1e0a2e" stroke="#a855f7" strokeWidth="0.7" opacity="0.8"/>
 
-        {/* Pies */}
         <rect x="21" y="66" width="12" height="5" rx="2" fill="#2d0a4e" stroke="#a855f7" strokeWidth="0.6" opacity="0.8"/>
         <rect x="31" y="66" width="12" height="5" rx="2" fill="#2d0a4e" stroke="#a855f7" strokeWidth="0.6" opacity="0.8"/>
 
-        {/* ── BOCA / OUTPUT según animación ── */}
         {animation === "talking" ? (
           <g transform="translate(32,30)">
             {[-6,-3,0,3,6].map((x, i) => {
@@ -152,7 +130,6 @@ export function VoxSprite({ animation = "idle", isActive = false }: VoxProps) {
           <line x1="27" y1="30" x2="37" y2="30" stroke="#a855f7" strokeWidth="1.5" strokeLinecap="round" opacity="0.5"/>
         )}
 
-        {/* ── BURBUJAS PENSAMIENTO ── */}
         {animation === "thinking" && (
           <g>
             <circle cx="46" cy="18" r="2.5" fill="#1e0a2e" stroke="#a855f7" strokeWidth="0.7"
@@ -166,14 +143,12 @@ export function VoxSprite({ animation = "idle", isActive = false }: VoxProps) {
           </g>
         )}
 
-        {/* ── LED antena ── */}
         <line x1="32" y1="6" x2="32" y2="1" stroke="#c084fc" strokeWidth="1" strokeLinecap="round" opacity="0.7"/>
         <circle cx="32" cy="0.5" r="1.5" fill="#a855f7"
           style={{ animation: "vox-record 1.5s ease-in-out infinite" }} filter="url(#vox-glow)"/>
 
       </g>
 
-      {/* ── SOMBRA BASE ── */}
       <ellipse cx="32" cy="76" rx="14" ry="2.5" fill="#a855f7" opacity="0.1"
         style={{ animation: "vox-lens 2.8s ease-in-out infinite", transformOrigin:"32px 76px" }}
         filter="url(#vox-glow-soft)"/>

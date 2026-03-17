@@ -10,7 +10,7 @@ interface Props {
   onCommand: (cmd: string) => void;
 }
 
-const MIN_HEIGHT = 48;   // colapsado — solo header
+const MIN_HEIGHT = 48;
 const DEFAULT_HEIGHT = 220;
 const MAX_HEIGHT = 520;
 
@@ -73,7 +73,6 @@ export default function Terminal({ agents, teamModeEnabled, onCommand }: Props) 
     }
   }, [allLogs, isCollapsed]);
 
-  // ── Drag to resize ──
   const onMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     dragStartY.current = e.clientY;
@@ -148,7 +147,6 @@ export default function Terminal({ agents, teamModeEnabled, onCommand }: Props) 
         overflow: "hidden",
       }}
     >
-      {/* ── Drag Handle ── */}
       <div
         onMouseDown={onMouseDown}
         className="absolute top-0 left-0 right-0 h-1 z-50 group"
@@ -163,7 +161,6 @@ export default function Terminal({ agents, teamModeEnabled, onCommand }: Props) 
         />
       </div>
 
-      {/* ── Header ── */}
       <div
         className="flex items-center justify-between px-4 shrink-0"
         style={{
@@ -233,7 +230,6 @@ export default function Terminal({ agents, teamModeEnabled, onCommand }: Props) 
         </div>
       </div>
 
-      {/* ── Log Feed ── */}
       {!isCollapsed && (
         <div className="flex-1 overflow-y-auto px-4 py-2 space-y-1 font-mono text-[11px] leading-relaxed">
           <div className="flex items-center gap-2 pb-2 border-b border-white/5">
@@ -297,13 +293,11 @@ export default function Terminal({ agents, teamModeEnabled, onCommand }: Props) 
         </div>
       )}
 
-      {/* ── Input Area ── */}
       {!isCollapsed && (
         <div
           className="shrink-0 px-3 py-2"
           style={{ borderTop: "1px solid rgba(255,255,255,0.06)", background: "#0a0a14" }}
         >
-          {/* Quick commands */}
           <div className="flex gap-1.5 mb-2 flex-wrap">
             {[
               { cmd: "/team_mode", label: "Agents Team" },
@@ -333,7 +327,6 @@ export default function Terminal({ agents, teamModeEnabled, onCommand }: Props) 
             ))}
           </div>
 
-          {/* Input */}
           <form onSubmit={handleSubmit} className="flex items-center gap-2">
             <span className="text-cyan-400/60 font-mono text-sm select-none">›</span>
             <input

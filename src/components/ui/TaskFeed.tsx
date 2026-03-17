@@ -5,7 +5,6 @@ import { Server } from "lucide-react";
 export default function TaskFeed({ tasks }: { tasks: Task[] }) {
   return (
     <div className="flex flex-col h-full bg-black/40 border border-white/10 rounded-xl panel relative overflow-hidden">
-      {/* Header */}
       <div className="flex items-center gap-3 p-4 border-b border-white/5">
         <Server className="w-4 h-4 text-cyan-400" />
         <span className="text-xs tracking-widest font-mono text-white/70 uppercase">

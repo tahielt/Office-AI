@@ -283,8 +283,6 @@ export default function JRPGBoard({ agents }: Props) {
 
       <div className="relative rounded-lg overflow-hidden w-full h-full"
         style={{ background:"#0d0d14", border:"1px solid rgba(255,255,255,0.06)" }}>
-
-        {/* ── FONDO ── */}
         <svg className="absolute inset-0 w-full h-full" preserveAspectRatio="xMidYMid slice" viewBox="0 0 900 560" xmlns="http://www.w3.org/2000/svg">
           <defs>
             <pattern id="floorTile" x="0" y="0" width="64" height="64" patternUnits="userSpaceOnUse">
@@ -321,14 +319,12 @@ export default function JRPGBoard({ agents }: Props) {
           <rect x="860" y="26" width="12" height="10" rx="1" fill="#4a2800"/>
         </svg>
 
-        {/* Label server room */}
         <div className="absolute top-0 left-1/2 -translate-x-1/2 flex items-center gap-2 z-10" style={{top:"6px"}}>
           <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse"/>
           <span className="text-[9px] font-mono tracking-[0.3em] text-indigo-400/60">SERVER ROOM</span>
           <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" style={{animationDelay:"0.5s"}}/>
         </div>
 
-        {/* Collaboration lanes */}
         <div className="absolute inset-0 pointer-events-none z-20">
           {activeCollaborators.map((agent) => {
             const lane = agent.lane && COLLAB_POSITIONS[agent.lane] ? COLLAB_POSITIONS[agent.lane] : null;
@@ -426,7 +422,6 @@ export default function JRPGBoard({ agents }: Props) {
           )}
         </div>
 
-        {/* ── ARIA — centro del board ── */}
         {ariaAgent && (
           <div
             className="absolute z-40 flex flex-col items-center pointer-events-none transition-all duration-500"
@@ -467,7 +462,6 @@ export default function JRPGBoard({ agents }: Props) {
           </div>
         )}
 
-        {/* ── AGENTES ── */}
         {boardAgents.map((agent) => {
           const pos = DESK_POSITIONS[agent.id];
           if (!pos) return null;
@@ -479,7 +473,6 @@ export default function JRPGBoard({ agents }: Props) {
 
           return (
             <React.Fragment key={agent.id}>
-              {/* Desk */}
               <div className="absolute pointer-events-none"
                 style={{
                   top:pos.top,
@@ -497,7 +490,6 @@ export default function JRPGBoard({ agents }: Props) {
                 </div>
               </div>
 
-              {/* Sprite */}
               <div className="absolute flex flex-col items-center transition-all duration-[1200ms] ease-in-out"
                 style={{
                   top:placement.top, left:placement.left,
