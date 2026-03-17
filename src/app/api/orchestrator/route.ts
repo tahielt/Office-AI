@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { buildTeamAssignments, getTeamMembersForAgent } from "@/lib/agentTeams";
 import { sanitizeOrchestratorPayload } from "@/lib/inputSanitizers";
-import { AgentLane, AgentZone, TeamAssignment } from "@/types/agent";
+import { AgentLane, AgentZone, SubAgentStage, TeamAssignment } from "@/types/agent";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
 import { generateText } from "ai";
@@ -89,6 +89,8 @@ interface SubAgentStep {
   subAgentName: string;
   subAgentRole: string;
   objective: string;
+  stage?: SubAgentStage;
+  dependsOnSubAgentIds?: string[];
   thought: string;
   message: string;
   provider: ProviderId;
@@ -1214,9 +1216,135 @@ function attachSubStepMeta(step: SubAgentStep, startedAtMs: number): SubAgentSte
   };
 }
 
-function pickSubAgentAssignments(teamAssignments: TeamAssignment[], rapidMode: boolean) {
+const SUB_AGENT_STAGE_ORDER: Record<SubAgentStage, number> = {
+  intake: 0,
+  discover: 1,
+  shape: 2,
+  synthesize: 3,
+  validate: 4,
+  followup: 5,
+};
+
+function getSubAgentStageLabel(stage?: SubAgentStage) {
+  if (stage === "intake") return "intake";
+  if (stage === "discover") return "discover";
+  if (stage === "shape") return "shape";
+  if (stage === "synthesize") return "synthesize";
+  if (stage === "validate") return "validate";
+  if (stage === "followup") return "followup";
+  return "task";
+}
+
+function scoreSubAgentAssignment(assignment: TeamAssignment, task: string) {
+  const normalizedTask = normalizePlainText(`${task} ${assignment.objective}`);
+  let score = (assignment.priority ?? 1) * 10;
+
+  for (const hint of assignment.activationHints ?? []) {
+    const normalizedHint = normalizePlainText(hint);
+    if (normalizedHint && normalizedTask.includes(normalizedHint)) {
+      score += 8;
+    }
+  }
+
+  if ((assignment.stage === "discover" || assignment.stage === "intake") && /\b(investig|hallaz|origen|buscar|clasific|triage)\b/.test(normalizedTask)) {
+    score += 5;
+  }
+  if ((assignment.stage === "shape" || assignment.stage === "synthesize") && /\b(plan|workflow|propuesta|mensaje|guion|roadmap|fix|correccion)\b/.test(normalizedTask)) {
+    score += 5;
+  }
+  if ((assignment.stage === "validate" || assignment.stage === "followup") && /\b(valid|riesgo|deploy|regresi|seguimiento|siguiente paso|qa)\b/.test(normalizedTask)) {
+    score += 6;
+  }
+
+  return score;
+}
+
+function sortAssignmentsForExecution(assignments: TeamAssignment[], task: string) {
+  return [...assignments].sort((left, right) => {
+    const stageDelta = (SUB_AGENT_STAGE_ORDER[left.stage ?? "shape"] ?? 99) - (SUB_AGENT_STAGE_ORDER[right.stage ?? "shape"] ?? 99);
+    if (stageDelta !== 0) return stageDelta;
+
+    const scoreDelta = scoreSubAgentAssignment(right, task) - scoreSubAgentAssignment(left, task);
+    if (scoreDelta !== 0) return scoreDelta;
+
+    return (right.priority ?? 0) - (left.priority ?? 0);
+  });
+}
+
+function pickSubAgentAssignments(teamAssignments: TeamAssignment[], task: string, rapidMode: boolean) {
   if (teamAssignments.length === 0) return [];
-  return rapidMode ? teamAssignments.slice(0, Math.min(2, teamAssignments.length)) : teamAssignments;
+
+  const selectedIds = new Set<string>();
+  const lookup = new Map(teamAssignments.map((assignment) => [assignment.subAgentId, assignment]));
+  const scored = [...teamAssignments].sort((left, right) => scoreSubAgentAssignment(right, task) - scoreSubAgentAssignment(left, task));
+  const discoverAnchor =
+    scored.find((assignment) => assignment.stage === "intake" || assignment.stage === "discover") ?? scored[0];
+  const closer =
+    [...scored].reverse().find((assignment) =>
+      assignment.stage === "synthesize" || assignment.stage === "validate" || assignment.stage === "followup"
+    ) ?? scored[scored.length - 1];
+
+  const includeAssignment = (assignment: TeamAssignment | undefined) => {
+    if (!assignment || selectedIds.has(assignment.subAgentId)) return;
+
+    for (const dependencyId of assignment.dependsOnSubAgentIds ?? []) {
+      includeAssignment(lookup.get(dependencyId));
+    }
+
+    selectedIds.add(assignment.subAgentId);
+  };
+
+  includeAssignment(discoverAnchor);
+
+  const targetCount = rapidMode ? Math.min(2, teamAssignments.length) : teamAssignments.length;
+  for (const assignment of scored) {
+    includeAssignment(assignment);
+    if (selectedIds.size >= targetCount) break;
+  }
+
+  includeAssignment(closer);
+
+  return sortAssignmentsForExecution(
+    teamAssignments.filter((assignment) => selectedIds.has(assignment.subAgentId)),
+    task
+  );
+}
+
+function buildSubAgentPlanContext(assignments: TeamAssignment[]) {
+  if (assignments.length === 0) return "";
+
+  return assignments
+    .map((assignment, index) => {
+      const dependencyBlock =
+        assignment.dependsOnSubAgentIds && assignment.dependsOnSubAgentIds.length > 0
+          ? ` | depende de ${assignment.dependsOnSubAgentIds.join(", ")}`
+          : "";
+      return `${index + 1}. [${getSubAgentStageLabel(assignment.stage)}] ${assignment.subAgentName}: ${assignment.objective}${dependencyBlock}`;
+    })
+    .join("\n");
+}
+
+function buildDependentSubStepsContext(subSteps: SubAgentStep[], assignment: TeamAssignment) {
+  const dependencyIds = assignment.dependsOnSubAgentIds ?? [];
+  const relevantSteps =
+    dependencyIds.length > 0 ? subSteps.filter((step) => dependencyIds.includes(step.subAgentId)) : subSteps;
+  return buildSubStepsContext(relevantSteps.slice(-3));
+}
+
+function buildStageExecutionGroups(assignments: TeamAssignment[], task: string) {
+  const orderedAssignments = sortAssignmentsForExecution(assignments, task);
+  const groups = new Map<number, TeamAssignment[]>();
+
+  for (const assignment of orderedAssignments) {
+    const stageKey = SUB_AGENT_STAGE_ORDER[assignment.stage ?? "shape"] ?? 99;
+    const currentGroup = groups.get(stageKey) ?? [];
+    currentGroup.push(assignment);
+    groups.set(stageKey, currentGroup);
+  }
+
+  return [...groups.entries()]
+    .sort(([left], [right]) => left - right)
+    .map(([, assignmentsInStage]) => assignmentsInStage);
 }
 
 function buildSubStepFallbackMessage(parentAgentId: AgentId, assignment: TeamAssignment, task: string, reason: string) {
@@ -1238,7 +1366,9 @@ function buildSubStepsContext(subSteps: SubAgentStep[]) {
     .map((step) =>
       [
         `${step.subAgentName} (${step.subAgentRole})`,
+        `Etapa: ${getSubAgentStageLabel(step.stage)}`,
         `Objetivo: ${step.objective}`,
+        step.dependsOnSubAgentIds?.length ? `Depende de: ${step.dependsOnSubAgentIds.join(" | ")}` : "",
         `Resumen: ${step.output?.summary ?? clip(step.message.replace(/\s+/g, " "), 180)}`,
         step.output?.risks?.length ? `Riesgos: ${step.output.risks.slice(0, 2).join(" | ")}` : "",
         step.output?.nextSteps?.length ? `Próximos pasos: ${step.output.nextSteps.slice(0, 2).join(" | ")}` : "",
@@ -1253,6 +1383,7 @@ function buildOutputFromSubSteps(agentId: AgentId, task: string, subSteps: SubAg
   const summaryHighlights = dedupeStrings(
     subSteps.map((step) => step.output?.summary ?? cleanStructuredLine(step.message)).filter(Boolean)
   ).slice(0, 2);
+  const stageCoverage = dedupeStrings(subSteps.map((step) => getSubAgentStageLabel(step.stage))).join(" -> ");
   const evidence =
     sources.length > 0
       ? sources.slice(0, 4).map((source) => ({
@@ -1285,14 +1416,17 @@ function buildOutputFromSubSteps(agentId: AgentId, task: string, subSteps: SubAg
   return {
     summary:
       summaryHighlights.length > 0
-        ? clip(`${agentId} consolidó ${subSteps.length} subagentes: ${summaryHighlights.join(" / ")}`, 220)
+        ? clip(
+            `${agentId} coordinó ${subSteps.length} subagentes${stageCoverage ? ` (${stageCoverage})` : ""}: ${summaryHighlights.join(" / ")}`,
+            240
+          )
         : `${agentId} consolidó ${subSteps.length} subagentes internos para "${task}".`,
     evidence: evidence.slice(0, 4),
     risks: risks.length > 0 ? risks : buildDefaultRisks(agentId, task),
     nextSteps: nextSteps.length > 0 ? nextSteps : buildDefaultNextSteps(agentId, task),
     artifacts: subSteps.slice(0, 3).map((step) => ({
       kind: "subagent-note",
-      title: `${step.subAgentName} output`,
+      title: `${step.subAgentName} (${getSubAgentStageLabel(step.stage)})`,
       content: clip(step.message.replace(/\s+/g, " "), 320),
     })),
   };
@@ -1304,13 +1438,15 @@ async function runSubAgent(
   assignment: TeamAssignment,
   context: string,
   rapidMode: boolean,
-  extraInstructions = ""
+  extraInstructions = "",
+  coordinationContext = ""
 ) {
   const startedAtMs = Date.now();
   const generation = await tryGenerateWithOptions(
     [
       `Sos ${assignment.subAgentName}, subagente interno de ${parentAgentId}.`,
       `Rol: ${assignment.subAgentRole}.`,
+      `Etapa de ejecución: ${getSubAgentStageLabel(assignment.stage)}.`,
       `Objetivo puntual: ${assignment.objective}.`,
       "Respondé en español y no repitas que sos un modelo.",
     ].join(" "),
@@ -1318,10 +1454,13 @@ async function runSubAgent(
       `Tarea principal:\n${task}`,
       `Objetivo puntual:\n${assignment.objective}`,
       context ? `Contexto operativo:\n${context}` : "",
+      coordinationContext ? `Cadena interna y handoff previo:\n${coordinationContext}` : "",
       [
         "Instrucciones:",
         "- Enfocate solo en tu frente y no cierres toda la tarea.",
+        "- Si recibís contexto previo, apoyate en él; si detectás tensión o contradicción, dejala explícita.",
         "- Respondé con secciones: Resumen, Evidencia, Riesgos y Próximos pasos.",
+        "- Usá Próximos pasos como mini handoff para el siguiente subagente o para el lead.",
         `- Mantené la salida ${rapidMode ? "muy corta" : "corta"} y accionable.`,
         extraInstructions,
       ]
@@ -1356,7 +1495,9 @@ async function runSubAgent(
       subAgentName: assignment.subAgentName,
       subAgentRole: assignment.subAgentRole,
       objective: assignment.objective,
-      thought: `${assignment.subAgentName} atacó "${assignment.objective}" para ${parentAgentId}.`,
+      stage: assignment.stage,
+      dependsOnSubAgentIds: assignment.dependsOnSubAgentIds,
+      thought: `${assignment.subAgentName} atacó "${assignment.objective}" para ${parentAgentId} en etapa ${getSubAgentStageLabel(assignment.stage)}.`,
       message: resolvedMessage,
       provider: generation.text ? generation.provider : "stub",
       output,
@@ -1368,65 +1509,83 @@ async function runSubAgent(
 async function runSubAgentBatch(
   parentAgentId: AgentId,
   task: string,
-  teamAssignments: TeamAssignment[],
+  selectedAssignments: TeamAssignment[],
   context: string,
   rapidMode: boolean,
   extraInstructions = ""
 ) {
-  const selectedAssignments = pickSubAgentAssignments(teamAssignments, rapidMode);
   if (selectedAssignments.length === 0) return [];
 
-  const settled = await Promise.allSettled(
-    selectedAssignments.map((assignment) =>
-      withTimeout(
-        runSubAgent(parentAgentId, task, assignment, context, rapidMode, extraInstructions),
-        rapidMode ? 3600 : 5000,
-        () =>
-          attachSubStepMeta(
-            {
-              subAgentId: assignment.subAgentId,
-              subAgentName: assignment.subAgentName,
-              subAgentRole: assignment.subAgentRole,
-              objective: assignment.objective,
-              thought: `${assignment.subAgentName} devolvió fallback por timeout.`,
-              message: buildSubStepFallbackMessage(parentAgentId, assignment, task, "Timeout operativo interno"),
-              provider: "stub",
-              output: deriveStructuredOutputFromMessage(
-                parentAgentId,
-                `${task} · ${assignment.objective}`,
-                buildSubStepFallbackMessage(parentAgentId, assignment, task, "Timeout operativo interno")
-              ),
-            },
-            Date.now()
-          )
-      )
-    )
-  );
+  const executedSubSteps: SubAgentStep[] = [];
+  const executionPlan = buildStageExecutionGroups(selectedAssignments, task);
+  const planContext = buildSubAgentPlanContext(selectedAssignments);
 
-  return settled.map((result, index) => {
-    if (result.status === "fulfilled") return result.value;
+  for (const stageAssignments of executionPlan) {
+    const stageCarryover = executedSubSteps.length > 0 ? buildSubStepsContext(executedSubSteps.slice(-4)) : "";
+    const settled = await Promise.allSettled(
+      stageAssignments.map((assignment) => {
+        const coordinationContext = [planContext, stageCarryover, buildDependentSubStepsContext(executedSubSteps, assignment)]
+          .filter(Boolean)
+          .join("\n\n");
 
-    const assignment = selectedAssignments[index];
-    const fallbackMessage = buildSubStepFallbackMessage(
-      parentAgentId,
-      assignment,
-      task,
-      getErrorMessage(result.reason)
+        return withTimeout(
+          runSubAgent(parentAgentId, task, assignment, context, rapidMode, extraInstructions, coordinationContext),
+          rapidMode ? 3600 : 5000,
+          () =>
+            attachSubStepMeta(
+              {
+                subAgentId: assignment.subAgentId,
+                subAgentName: assignment.subAgentName,
+                subAgentRole: assignment.subAgentRole,
+                objective: assignment.objective,
+                stage: assignment.stage,
+                dependsOnSubAgentIds: assignment.dependsOnSubAgentIds,
+                thought: `${assignment.subAgentName} devolvió fallback por timeout.`,
+                message: buildSubStepFallbackMessage(parentAgentId, assignment, task, "Timeout operativo interno"),
+                provider: "stub",
+                output: deriveStructuredOutputFromMessage(
+                  parentAgentId,
+                  `${task} · ${assignment.objective}`,
+                  buildSubStepFallbackMessage(parentAgentId, assignment, task, "Timeout operativo interno")
+                ),
+              },
+              Date.now()
+            )
+        );
+      })
     );
-    return attachSubStepMeta(
-      {
-        subAgentId: assignment.subAgentId,
-        subAgentName: assignment.subAgentName,
-        subAgentRole: assignment.subAgentRole,
-        objective: assignment.objective,
-        thought: `${assignment.subAgentName} devolvió fallback por error de ejecución.`,
-        message: fallbackMessage,
-        provider: "stub",
-        output: deriveStructuredOutputFromMessage(parentAgentId, `${task} · ${assignment.objective}`, fallbackMessage),
-      },
-      Date.now()
-    );
-  });
+
+    const stageResults = settled.map((result, index) => {
+      if (result.status === "fulfilled") return result.value;
+
+      const assignment = stageAssignments[index];
+      const fallbackMessage = buildSubStepFallbackMessage(
+        parentAgentId,
+        assignment,
+        task,
+        getErrorMessage(result.reason)
+      );
+      return attachSubStepMeta(
+        {
+          subAgentId: assignment.subAgentId,
+          subAgentName: assignment.subAgentName,
+          subAgentRole: assignment.subAgentRole,
+          objective: assignment.objective,
+          stage: assignment.stage,
+          dependsOnSubAgentIds: assignment.dependsOnSubAgentIds,
+          thought: `${assignment.subAgentName} devolvió fallback por error de ejecución.`,
+          message: fallbackMessage,
+          provider: "stub",
+          output: deriveStructuredOutputFromMessage(parentAgentId, `${task} · ${assignment.objective}`, fallbackMessage),
+        },
+        Date.now()
+      );
+    });
+
+    executedSubSteps.push(...stageResults);
+  }
+
+  return executedSubSteps;
 }
 
 function buildRoutingDirectory() {
@@ -1485,10 +1644,11 @@ function parsePlannerDecision(rawText: string, prompt: string): AriaPlannerDecis
 async function planWithAria(prompt: string, roster: string, teamModeEnabled: boolean): Promise<PlannedRoute> {
   const heuristicPlan = plan(prompt);
   const { teamAssignments } = buildTeamContext("ARIA", heuristicPlan.task, teamModeEnabled);
+  const selectedPlannerAssignments = pickSubAgentAssignments(teamAssignments, prompt, false);
   const plannerSubSteps = await runSubAgentBatch(
     "ARIA",
     prompt,
-    teamAssignments,
+    selectedPlannerAssignments,
     `Pedido del usuario:\n${prompt}\n\nEspecialistas disponibles:\n${buildRoutingDirectory()}`,
     false,
     "- Enfocate en triage, routing y seguimiento. No redactes la respuesta final."
@@ -2128,13 +2288,15 @@ async function runLeadWithSubAgents(
 ) {
   const { teamAssignments, teamContext } = buildTeamContext(agentId, task, teamModeEnabled);
   const rapidMode = Boolean(options.rapidMode);
+  const selectedAssignments = pickSubAgentAssignments(teamAssignments, task, rapidMode);
   const operativeContext = [options.context, teamAssignments.length === 0 ? teamContext : ""].filter(Boolean).join("\n\n");
+  const subAgentPlanContext = buildSubAgentPlanContext(selectedAssignments);
   const subSteps =
-    teamAssignments.length > 0
+    selectedAssignments.length > 0
       ? await runSubAgentBatch(
           agentId,
           task,
-          teamAssignments,
+          selectedAssignments,
           [options.context, roster].filter(Boolean).join("\n\n"),
           rapidMode,
           options.subAgentExtraInstructions ?? ""
@@ -2147,11 +2309,14 @@ async function runLeadWithSubAgents(
     [
       `Consulta:\n${task}`,
       operativeContext ? `Contexto:\n${operativeContext}` : "",
+      subAgentPlanContext ? `Plan interno del squad:\n${subAgentPlanContext}` : "",
       subStepsContext ? `Subagentes internos ejecutados:\n${subStepsContext}` : "",
       [
         "Instrucciones:",
         "- Respondé en español.",
         "- Integrá a tus subagentes como un solo frente coordinado.",
+        "- Si hay tensiones entre subagentes, explicitá el criterio con el que cerrás.",
+        "- Dejá una decisión final, un riesgo principal y un siguiente paso claro.",
         `- Mantené la salida ${rapidMode ? "corta" : "profunda pero concreta"}.`,
         options.extraInstructions ?? "",
       ]
@@ -2199,7 +2364,7 @@ async function runLeadWithSubAgents(
       provider: generation.text ? generation.provider : "stub",
       thought:
         subSteps.length > 0
-          ? `${agentId} ejecutó ${subSteps.length} subagentes internos${(options.sources ?? []).length ? ` sobre ${(options.sources ?? []).length} señales` : ""} para "${task}".`
+          ? `${agentId} coordinó ${subSteps.length} subagentes internos${(options.sources ?? []).length ? ` sobre ${(options.sources ?? []).length} señales` : ""} para "${task}" con una cadena ${selectedAssignments.map((assignment) => assignment.subAgentName).join(" -> ")}.`
           : buildOperationalThought(agentId, task, teamAssignments, (options.sources ?? []).length),
       message: resolvedMessage,
       output,

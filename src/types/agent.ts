@@ -24,11 +24,17 @@ export interface SubAgent {
   specialty: string;
 }
 
+export type SubAgentStage = "intake" | "discover" | "shape" | "synthesize" | "validate" | "followup";
+
 export interface TeamAssignment {
   subAgentId: string;
   subAgentName: string;
   subAgentRole: string;
   objective: string;
+  stage?: SubAgentStage;
+  priority?: number;
+  dependsOnSubAgentIds?: string[];
+  activationHints?: string[];
 }
 
 export type AgentLane = "alpha" | "beta" | "gamma";

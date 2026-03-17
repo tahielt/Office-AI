@@ -56,6 +56,8 @@ type OrchestratorSubStepPayload = {
   subAgentName: string;
   subAgentRole: string;
   objective: string;
+  stage?: string;
+  dependsOnSubAgentIds?: string[];
   thought: string;
   message: string;
   provider: string;
@@ -474,12 +476,19 @@ export function useAgents() {
                 logs.push(createLog("system", `${Math.min(step.sources.length, 4)} fuentes verificadas.`));
               }
               if (step.subSteps?.length) {
-                logs.push(createLog("system", `Subagentes: ${step.subSteps.map((subStep) => subStep.subAgentName).join(", ")}`));
+                logs.push(
+                  createLog(
+                    "system",
+                    `Subagentes: ${step.subSteps.map((subStep) => `${subStep.subAgentName}[${(subStep.stage || "task").toUpperCase()}]`).join(", ")}`
+                  )
+                );
                 logs.push(
                   ...step.subSteps.slice(0, 3).map((subStep) =>
                     createLog(
                       "system",
-                      `${subStep.subAgentName} -> ${subStep.output?.summary || subStep.message.split("\n")[0] || subStep.objective}`
+                      `${subStep.subAgentName}${subStep.dependsOnSubAgentIds?.length ? ` <= ${subStep.dependsOnSubAgentIds.join("+")}` : ""} -> ${
+                        subStep.output?.summary || subStep.message.split("\n")[0] || subStep.objective
+                      }`
                     )
                   )
                 );

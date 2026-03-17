@@ -1,5 +1,4 @@
 "use client";
-import React from "react";
 
 interface VoxProps {
   animation?: "idle" | "thinking" | "talking" | "typing" | "walking";
