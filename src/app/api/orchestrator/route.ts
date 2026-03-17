@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 
 import { buildTeamAssignments, getTeamMembersForAgent } from "@/lib/agentTeams";
+import { sanitizeOrchestratorPayload } from "@/lib/inputSanitizers";
 import { AgentLane, AgentZone, TeamAssignment } from "@/types/agent";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
@@ -838,12 +839,6 @@ async function persistObservedRun(params: {
     steps,
     error,
   });
-}
-
-function isAgentDescriptor(value: unknown): value is AgentDescriptor {
-  if (typeof value !== "object" || value === null) return false;
-  const candidate = value as Partial<AgentDescriptor>;
-  return typeof candidate.id === "string" && typeof candidate.name === "string" && typeof candidate.role === "string";
 }
 
 function getErrorMessage(error: unknown) {
@@ -2435,14 +2430,14 @@ export async function POST(req: Request) {
   const routeStartedAtMs = Date.now();
 
   try {
-    const body = (await req.json()) as OrchestratorRequest;
-    if (typeof body.prompt !== "string" || !body.prompt.trim()) {
+    const body = (await req.json().catch(() => null)) as OrchestratorRequest | null;
+    const { prompt, currentAgents, teamMode } = sanitizeOrchestratorPayload(body);
+
+    if (!prompt) {
       return NextResponse.json({ runId, error: "Prompt inválido." }, { status: 400 });
     }
 
-    const currentAgents = Array.isArray(body.currentAgents) ? body.currentAgents.filter(isAgentDescriptor) : [];
-    const prompt = body.prompt.trim();
-    const teamModeEnabled = isTeamModeEnabled(body.teamMode);
+    const teamModeEnabled = isTeamModeEnabled(teamMode);
     const structuredResponse = getStructuredAriaResponse(prompt, teamModeEnabled);
     if (structuredResponse) {
       const instantRoutePlan: RoutePlan = {

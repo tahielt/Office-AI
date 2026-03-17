@@ -1,4 +1,5 @@
 "use client";
+import { MAX_COMMAND_LENGTH, sanitizeCommandInput } from "@/lib/inputSanitizers";
 import { Agent } from "@/types/agent";
 import { Terminal as TerminalIcon, Send, ChevronUp, ChevronDown, Maximize2, Minimize2 } from "lucide-react";
 import { useState, useRef, useEffect, useCallback } from "react";
@@ -126,8 +127,9 @@ export default function Terminal({ agents, teamModeEnabled, onCommand }: Props) 
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim()) return;
-    onCommand(input);
+    const command = sanitizeCommandInput(input);
+    if (!command) return;
+    onCommand(command);
     setInput("");
     inputRef.current?.focus();
   };
@@ -316,7 +318,7 @@ export default function Terminal({ agents, teamModeEnabled, onCommand }: Props) 
             ].map(({ cmd, label }) => (
               <button
                 key={cmd}
-                onClick={() => { setInput(cmd); inputRef.current?.focus(); }}
+                onClick={() => { setInput(sanitizeCommandInput(cmd)); inputRef.current?.focus(); }}
                 className="px-2 py-0.5 text-[9px] font-mono rounded-sm transition-colors"
                 style={{
                   background: "rgba(255,255,255,0.05)",
@@ -338,7 +340,8 @@ export default function Terminal({ agents, teamModeEnabled, onCommand }: Props) 
               ref={inputRef}
               type="text"
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              maxLength={MAX_COMMAND_LENGTH}
+              onChange={(e) => setInput(sanitizeCommandInput(e.target.value))}
               placeholder="Hablá con ARIA directamente. Ella decide si responde sola o si activa otros agentes..."
               className="flex-1 bg-transparent font-mono text-[12px] focus:outline-none placeholder:text-white/20"
               style={{ color: "#e2e8f0" }}

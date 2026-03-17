@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react";
 
 import { INITIAL_AGENTS, getInitialMetrics } from "@/lib/agents";
+import { sanitizeAgentDescriptors, sanitizeCommandInput } from "@/lib/inputSanitizers";
 import { Agent, AgentAnimation, AgentLane, AgentStatus, AgentZone, SystemMetrics, TeamAssignment } from "@/types/agent";
 
 const AGENT_ALIASES: Record<string, string> = {
@@ -107,6 +108,16 @@ type OrchestratorSuccessPayload = {
   };
 };
 
+type OrchestratorQueueStatus = "queued" | "running" | "completed" | "failed";
+
+type OrchestratorQueueJobPayload = {
+  id: string;
+  kind: "orchestrator" | "n8n-handoff";
+  status: OrchestratorQueueStatus;
+  result?: OrchestratorSuccessPayload & OrchestratorErrorPayload;
+  error?: string;
+};
+
 type N8nDemoErrorPayload = {
   error?: string;
   webhookUrl?: string;
@@ -145,6 +156,10 @@ function createLog(type: "system" | "communication" | "command", text: string) {
     text,
     timestamp: new Date(),
   };
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function appendAgentLogs(agent: Agent, entries: ReturnType<typeof createLog>[]) {
@@ -235,7 +250,7 @@ export function useAgents() {
   const [orchestratorRefreshKey, setOrchestratorRefreshKey] = useState(0);
 
   const handleCommand = useCallback(async (cmd: string) => {
-    const trimmedCommand = cmd.trim();
+    const trimmedCommand = sanitizeCommandInput(cmd);
     if (!trimmedCommand) return;
 
     const requestedTeamModeValue = getNextTeamModeValue(trimmedCommand, teamModeEnabled);
@@ -318,24 +333,103 @@ export function useAgents() {
     }));
 
     try {
-      const res = await fetch("/api/orchestrator", {
+      const enqueueRes = await fetch("/api/orchestrator/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          prompt: trimmedCommand,
-          teamMode: teamModeEnabled,
-          currentAgents: agents.map((agent) => ({ id: agent.id, name: agent.name, role: agent.role })),
+          kind: "orchestrator",
+          payload: {
+            prompt: trimmedCommand,
+            teamMode: teamModeEnabled,
+            currentAgents: sanitizeAgentDescriptors(agents.map((agent) => ({ id: agent.id, name: agent.name, role: agent.role }))),
+          },
         }),
       });
 
-      const payload = (await res.json().catch(() => null)) as
-        | (OrchestratorSuccessPayload & OrchestratorErrorPayload)
+      const enqueuePayload = (await enqueueRes.json().catch(() => null)) as
+        | {
+            job?: {
+              id?: string;
+              status?: OrchestratorQueueStatus;
+            };
+            error?: string;
+          }
         | null;
 
-      if (!res.ok) {
-        throw new Error(payload?.error || "Error al conectar con el orquestador");
+      if (!enqueueRes.ok) {
+        throw new Error(enqueuePayload?.error || "No pude encolar el pedido del orquestador");
       }
 
+      const jobId = enqueuePayload?.job?.id;
+      if (!jobId) {
+        throw new Error("La cola no devolvió un jobId válido");
+      }
+
+      setAgents((prev) =>
+        prev.map((agent) => {
+          if (agent.id !== "aria") return agent;
+          return appendAgentLogs(agent, [
+            createLog("system", `QUEUE ${jobId}`),
+            createLog("system", "JOB ENCOLADO"),
+            createLog("communication", "ARIA dejó el pedido en cola persistente y espera al worker externo."),
+          ]);
+        })
+      );
+
+      let queuedJob: OrchestratorQueueJobPayload | null = null;
+      let lastKnownStatus: OrchestratorQueueStatus | null = null;
+
+      for (let attempt = 0; attempt < 90; attempt += 1) {
+        await sleep(attempt === 0 ? 250 : 1000);
+        const jobRes = await fetch(`/api/orchestrator/jobs/${jobId}`, { cache: "no-store" });
+        const jobPayload = (await jobRes.json().catch(() => null)) as
+          | {
+              job?: OrchestratorQueueJobPayload;
+              error?: string;
+            }
+          | null;
+
+        if (!jobRes.ok) {
+          throw new Error(jobPayload?.error || `No pude leer el job ${jobId}`);
+        }
+
+        queuedJob = jobPayload?.job ?? null;
+        if (!queuedJob) {
+          throw new Error(`El job ${jobId} no devolvió estado`);
+        }
+
+        if (queuedJob.status !== lastKnownStatus) {
+          lastKnownStatus = queuedJob.status;
+          if (queuedJob.status === "running") {
+            setAgents((prev) =>
+              prev.map((agent) => {
+                if (agent.id !== "aria") return agent;
+                return appendAgentLogs(agent, [
+                  createLog("system", "WORKER RUNNING"),
+                  createLog("communication", "El worker tomó el pedido de la cola y está ejecutando a ARIA."),
+                ]);
+              })
+            );
+          }
+        }
+
+        if (queuedJob.status === "completed" || queuedJob.status === "failed") {
+          break;
+        }
+      }
+
+      if (!queuedJob) {
+        throw new Error(`No pude recuperar el estado final del job ${jobId}`);
+      }
+
+      if (queuedJob.status !== "completed") {
+        if (queuedJob.status === "failed") {
+          throw new Error(queuedJob.error || "El worker marcó el job como fallido");
+        }
+        throw new Error(`La cola sigue pendiente. Verificá que el worker esté corriendo con "npm run worker".`);
+      }
+
+      const payload = queuedJob.result ?? null;
       const steps = payload?.steps ?? [];
       if (steps.length === 0) {
         throw new Error("El orquestador no devolvió pasos ejecutables");

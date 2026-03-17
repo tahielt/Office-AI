@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 
+import { DEFAULT_N8N_TIMEOUT_MS, sanitizeJsonValue, sanitizeTextInput, sanitizeWebhookUrl } from "@/lib/inputSanitizers";
+
 export const runtime = "nodejs";
 
 const DEFAULT_WEBHOOK_URL = "http://127.0.0.1:5678/webhook/office-ai/intake";
-const DEFAULT_TIMEOUT_MS = 12000;
+const DEFAULT_TIMEOUT_MS = DEFAULT_N8N_TIMEOUT_MS;
 
 type DemoPayload = {
   requestId: string;
@@ -31,7 +33,7 @@ function getDefaultPayload(): DemoPayload {
 }
 
 function getWebhookUrl() {
-  return process.env.N8N_OFFICE_WEBHOOK_URL?.trim() || DEFAULT_WEBHOOK_URL;
+  return sanitizeWebhookUrl(process.env.N8N_OFFICE_WEBHOOK_URL) || DEFAULT_WEBHOOK_URL;
 }
 
 function getErrorMessage(error: unknown) {
@@ -57,20 +59,24 @@ function buildSuccessSummary(result: unknown) {
   const lines: string[] = [];
 
   if (typeof payload.ariaSummary === "string" && payload.ariaSummary.trim()) {
-    lines.push(payload.ariaSummary.trim());
+    lines.push(sanitizeTextInput(payload.ariaSummary, { maxLength: 800, preserveNewlines: true }));
   }
 
   const clientReady = payload.clientReadyOutput;
   if (clientReady) {
-    const deliverable = typeof clientReady.deliverable === "string" ? clientReady.deliverable : "salida";
-    const channel = typeof clientReady.channel === "string" ? clientReady.channel : "canal";
-    const firstAction = typeof clientReady.firstAction === "string" ? clientReady.firstAction : "validar siguiente paso";
+    const deliverable =
+      typeof clientReady.deliverable === "string" ? sanitizeTextInput(clientReady.deliverable, { maxLength: 120 }) : "salida";
+    const channel = typeof clientReady.channel === "string" ? sanitizeTextInput(clientReady.channel, { maxLength: 120 }) : "canal";
+    const firstAction =
+      typeof clientReady.firstAction === "string"
+        ? sanitizeTextInput(clientReady.firstAction, { maxLength: 200 })
+        : "validar siguiente paso";
     lines.push(`Entregable: ${deliverable} via ${channel}.`);
     lines.push(`Primer paso: ${firstAction}.`);
   }
 
   if (typeof payload.suggestedPilot === "string" && payload.suggestedPilot.trim()) {
-    lines.push(payload.suggestedPilot.trim());
+    lines.push(sanitizeTextInput(payload.suggestedPilot, { maxLength: 300, preserveNewlines: true }));
   }
 
   return lines.length > 0 ? lines.join("\n") : "n8n respondio correctamente.";
@@ -106,7 +112,12 @@ export async function POST() {
           error: `n8n devolvio ${response.status}. Revisá que el workflow office-ai/intake esté activo en ${webhookUrl}.`,
           webhookUrl,
           payload,
-          result,
+          result: sanitizeJsonValue(result, {
+            maxDepth: 6,
+            maxArrayLength: 24,
+            maxObjectEntries: 32,
+            maxStringLength: 4000,
+          }),
         },
         { status: 502 }
       );
@@ -116,7 +127,12 @@ export async function POST() {
       ok: true,
       webhookUrl,
       payload,
-      result,
+      result: sanitizeJsonValue(result, {
+        maxDepth: 6,
+        maxArrayLength: 24,
+        maxObjectEntries: 32,
+        maxStringLength: 4000,
+      }),
       summary: buildSuccessSummary(result),
     });
   } catch (error) {
