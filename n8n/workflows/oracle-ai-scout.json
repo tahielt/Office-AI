@@ -23,6 +23,7 @@
       },
       "id": "scout-webhook",
       "name": "Incoming Request",
+      "webhookId": "scout-webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
       "position": [
@@ -58,7 +59,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const payload = $json.body && typeof $json.body === 'object' ? $json.body : $json;\nconst rawPrompt = String(payload.prompt ?? payload.message ?? payload.task ?? '').trim();\nconst prompt = rawPrompt || 'Investiga el mercado y detecta oportunidades visibles para Oracle AI.';\nreturn [\n  {\n    json: {\n      requestId: payload.requestId ?? 'req-' + Date.now(),\n      workflow: 'Oracle AI - SCOUT',\n      agentId: 'SCOUT',\n      role: 'Inteligencia web y research',\n      specialty: 'Detecta competidores, tendencias y validaciones publicas.',\n      prompt,\n      requestedBy: String(payload.requestedBy ?? 'ARIA'),\n      source: payload.source ?? ($json.body ? 'webhook' : 'workflow'),\n      cutoffReason: payload.cutoffReason ?? 'not-needed',\n      executionOrder: payload.executionOrder ?? [],\n      tieBreakerContext: payload.tieBreakerContext ?? null,\n      freeOnly: true,\n    },\n  },\n];"
+        "jsCode": "const payload = $json.body && typeof $json.body === 'object' ? $json.body : $json;\nconst rawPrompt = String(payload.prompt ?? payload.message ?? payload.task ?? '').trim();\nconst prompt = rawPrompt || 'Investiga el mercado y detecta oportunidades visibles para Oracle AI.';\nconst requestedSource = String(payload.source ?? '').trim().toLowerCase();\nconst executionSource = $json.body\n  ? 'webhook'\n  : requestedSource === 'manual'\n    ? 'manual'\n    : 'workflow';\nreturn [\n  {\n    json: {\n      requestId: payload.requestId ?? 'req-' + Date.now(),\n      workflow: 'Oracle AI - SCOUT',\n      agentId: 'SCOUT',\n      role: 'Inteligencia web y research',\n      specialty: 'Detecta competidores, tendencias y validaciones publicas.',\n      prompt,\n      task: prompt.replace(/\\s+/g, ' ').trim().slice(0, 420),\n      requestedBy: String(payload.requestedBy ?? 'ARIA'),\n      source: requestedSource || executionSource,\n      executionSource,\n      cutoffReason: payload.cutoffReason ?? 'not-needed',\n      executionOrder: Array.isArray(payload.executionOrder) ? payload.executionOrder : [],\n      tieBreakerContext: payload.tieBreakerContext ?? null,\n      appBaseUrl: String(payload.appBaseUrl ?? 'http://127.0.0.1:3000').trim() || 'http://127.0.0.1:3000',\n      freeOnly: true,\n    },\n  },\n];"
       },
       "id": "scout-normalize",
       "name": "Normalize Input",
@@ -72,10 +73,10 @@
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "const prompt = $json.prompt ?? '';\nconst compactTask = prompt.length > 140 ? prompt.slice(0, 137) + '...' : prompt;\nreturn {\n  json: {\n    ...$json,\n    task: compactTask,\n    thought: 'SCOUT reviso el pedido y produjo una salida corta y accionable.',\n    message: 'SCOUT recomienda ejecutar un frente puntual alineado con su especialidad.',\n    findings: [\n      'SCOUT detecto una oportunidad clara vinculada al pedido',\n      'SCOUT sugiere mantener foco en una sola decision por iteracion',\n    ],\n    risks: [\n      'SCOUT marco una dependencia o supuesto a validar',\n    ],\n    nextSteps: [\n      'SCOUT propone un siguiente paso corto y medible',\n      'Cerrar con sintesis desde ARIA',\n    ],\n    latencyMs: 900,\n    cutoffReason: $json.cutoffReason ?? 'not-needed',\n    executionOrder: $json.executionOrder ?? [],\n    tieBreakerContext: $json.tieBreakerContext ?? null,\n  },\n};"
+        "jsCode": "const promptLines = [\n  '@SCOUT resolve esta tarea para Oracle AI con una salida final utilizable.',\n  'Rol: Inteligencia web y research.',\n  'Especialidad: Detecta competidores, tendencias y validaciones publicas..',\n  'Pedido original: ' + ($json.prompt ?? 'Resolver la tarea actual'),\n  $json.tieBreakerContext?.tieBreakerReason\n    ? 'Contexto de desempate: ' + $json.tieBreakerContext.tieBreakerReason\n    : '',\n  'Formato obligatorio:',\n  '- Resumen',\n  '- Evidencia',\n  '- Riesgos',\n  '- Proximos pasos',\n  'No repitas el prompt, no menciones a otros agentes y no digas \"puedo ayudarte\".',\n].filter(Boolean);\nreturn {\n  json: {\n    ...$json,\n    specialistPrompt: promptLines.join('\\n'),\n  },\n};"
       },
-      "id": "scout-build-output",
-      "name": "Build Specialist Output",
+      "id": "scout-build-prompt",
+      "name": "Build Specialist Prompt",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
@@ -85,16 +86,44 @@
     },
     {
       "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const baseUrl = String($json.appBaseUrl ?? 'http://127.0.0.1:3000').replace(/\\/+$/, '');\nconst lowerPrompt = String($json.prompt ?? '').toLowerCase();\nconst timeoutMs = /profundo|deep|completo|detallado/.test(lowerPrompt) ? 240000 : 180000;\ntry {\n  const parsed = await this.helpers.httpRequest({\n    method: 'POST',\n    url: baseUrl + '/api/orchestrator',\n    body: {\n      prompt: $json.specialistPrompt,\n      teamMode: false,\n      currentAgents: [],\n    },\n    json: true,\n    timeout: timeoutMs,\n  });\n  return {\n    json: {\n      ...$json,\n      appBaseUrl: baseUrl,\n      specialistRun: parsed,\n    },\n  };\n} catch (error) {\n  return {\n    json: {\n      ...$json,\n      appBaseUrl: baseUrl,\n      specialistRun: null,\n      specialistError: error instanceof Error ? error.message : String(error),\n      specialistErrorCode:\n        error && typeof error === 'object' && 'code' in error ? String(error.code) : 'ORCHESTRATOR_ERROR',\n      specialistErrorResponse:\n        error && typeof error === 'object' && 'response' in error && error.response?.body\n          ? error.response.body\n          : null,\n    },\n  };\n}"
+      },
+      "id": "scout-run-real",
+      "name": "Run Real Specialist",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const run = $json.specialistRun ?? {};\nconst steps = Array.isArray(run.steps) ? run.steps : [];\nconst targetAgent = $json.agentId ?? 'SCOUT';\nconst specialistStep =\n  steps.find((step) => step.agentId === targetAgent) ??\n  steps.find((step) => typeof step?.agentId === 'string' && step.agentId !== 'ARIA') ??\n  null;\nconst ariaStep = [...steps].reverse().find((step) => step.agentId === 'ARIA') ?? null;\nconst output = specialistStep?.output && typeof specialistStep.output === 'object' ? specialistStep.output : {};\nconst evidence = Array.isArray(output.evidence) ? output.evidence : [];\nconst findings = evidence\n  .map((item) => {\n    const claim = typeof item?.claim === 'string' ? item.claim.trim() : '';\n    const title = typeof item?.title === 'string' ? item.title.trim() : '';\n    return claim || title;\n  })\n  .filter(Boolean);\nif (findings.length === 0 && typeof output.summary === 'string' && output.summary.trim()) {\n  findings.push(output.summary.trim());\n}\nconst sources = evidence\n  .map((item) => ({\n    title: typeof item?.title === 'string' ? item.title : 'Fuente',\n    url: typeof item?.url === 'string' ? item.url : '',\n  }))\n  .filter((item) => item.url);\nconst provider = String(specialistStep?.provider ?? 'stub');\nconst blocked = !specialistStep || provider === 'stub';\nconst blockedReason = blocked\n  ? $json.specialistError ||\n    (Array.isArray(run?.trace?.errors) && run.trace.errors.length ? run.trace.errors.join(' | ') : '') ||\n    'El orquestador no devolvio una salida real para ' + targetAgent + '.'\n  : '';\nconst summary =\n  typeof output.summary === 'string' && output.summary.trim()\n    ? output.summary.trim()\n    : specialistStep?.message ?? '';\nconst risks = Array.isArray(output.risks) ? output.risks : [];\nconst nextSteps = Array.isArray(output.nextSteps) ? output.nextSteps : [];\nreturn {\n  json: {\n    requestId: $json.requestId ?? 'manual',\n    workflow: $json.workflow ?? 'Oracle AI - SCOUT',\n    agentId: targetAgent,\n    role: $json.role ?? 'Inteligencia web y research',\n    specialty: $json.specialty ?? 'Detecta competidores, tendencias y validaciones publicas.',\n    task: $json.task ?? String($json.prompt ?? '').slice(0, 420),\n    prompt: $json.prompt ?? '',\n    source: $json.source ?? 'manual',\n    executionSource: $json.executionSource ?? 'workflow',\n    requestedBy: $json.requestedBy ?? 'ARIA',\n    cutoffReason: $json.cutoffReason ?? 'not-needed',\n    executionOrder: $json.executionOrder ?? [],\n    tieBreakerContext: $json.tieBreakerContext ?? null,\n    blocked,\n    blockedReason,\n    provider,\n    findings,\n    risks: blocked && risks.length === 0 ? [blockedReason] : risks,\n    nextSteps:\n      blocked && nextSteps.length === 0\n        ? ['Revisar el proveedor activo, el endpoint ' + ($json.appBaseUrl ?? 'http://127.0.0.1:3000') + ' y relanzar ' + targetAgent + '.']\n        : nextSteps,\n    sources,\n    summary: blocked ? blockedReason : summary,\n    message: specialistStep?.message ?? blockedReason,\n    customerFacingOutput: ariaStep?.message ?? specialistStep?.message ?? blockedReason,\n    thought: specialistStep?.thought ?? '',\n    latencyMs: Number(run?.trace?.totalDurationMs ?? specialistStep?.trace?.durationMs ?? 0),\n    freeOnly: true,\n  },\n};"
+      },
+      "id": "scout-finalize",
+      "name": "Finalize Specialist Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1380,
+        340
+      ]
+    },
+    {
+      "parameters": {
         "mode": "expression",
         "numberOutputs": 2,
-        "output": "={{$json.source === 'webhook' ? 1 : 0}}"
+        "output": "={{$json.executionSource === 'webhook' ? 1 : 0}}"
       },
       "id": "scout-return-mode",
       "name": "Return Mode",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.4,
       "position": [
-        1100,
+        1660,
         340
       ]
     },
@@ -103,13 +132,13 @@
         "assignments": {
           "assignments": [
             {
-              "id": "resultMode-e952b1dc",
+              "id": "resultMode-5f434e9d",
               "name": "resultMode",
               "value": "manual-preview",
               "type": "string"
             },
             {
-              "id": "summarySource-a1c36ef7",
+              "id": "summarySource-3a2b01ea",
               "name": "summarySource",
               "value": "scout-preview",
               "type": "string"
@@ -123,7 +152,7 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        1360,
+        1920,
         240
       ]
     },
@@ -136,7 +165,7 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
       "position": [
-        1360,
+        1920,
         440
       ]
     }
@@ -190,14 +219,36 @@
       "main": [
         [
           {
-            "node": "Build Specialist Output",
+            "node": "Build Specialist Prompt",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Build Specialist Output": {
+    "Build Specialist Prompt": {
+      "main": [
+        [
+          {
+            "node": "Run Real Specialist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Real Specialist": {
+      "main": [
+        [
+          {
+            "node": "Finalize Specialist Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finalize Specialist Output": {
       "main": [
         [
           {

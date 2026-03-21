@@ -2,66 +2,52 @@
 
 interface AlphaGuideCardProps {
   onRunPrompt: (prompt: string) => void;
-  onRunN8nDemo: () => void;
-  n8nDemoStatus: "idle" | "running" | "success" | "error";
-  n8nDemoMessage: string | null;
 }
 
-const DEMO_PROMPTS = [
+const QUICK_REQUESTS = [
   {
-    label: "Oferta alpha",
-    focus: "definir promesa, alcance y mensaje comercial",
+    label: "Crear landing",
+    focus: "pedir una web competitiva desde este chat",
     prompt:
-      "Definí la oferta alpha de este orquestador, su promesa comercial y un mensaje breve para venderlo sin sobreprometer.",
+      "Hola ARIA, quiero que el agente me cree una landing competitiva para este producto usando n8n. Necesito propuesta visual, estructura, copy principal y output listo para bajar.",
   },
   {
-    label: "Demo con n8n",
-    focus: "mostrar un caso real de operacion automatizada",
+    label: "Mejorar web",
+    focus: "optimizar una web existente y bajar una mejor version",
     prompt:
-      "Convertí este alpha en una demo funcional con n8n, dejando alcance, flujo y límites claros para un cliente piloto.",
+      "Hola ARIA, quiero mejorar esta web y que el flujo en n8n me devuelva una version mas competitiva con mejor propuesta, secciones y copy.",
   },
   {
-    label: "Prospeccion",
-    focus: "investigar una cuenta y salir con siguiente accion",
+    label: "Portal ops",
+    focus: "disenar una interfaz tipo cockpit para operar el agente",
     prompt:
-      "Investigá un prospecto, detectá la oportunidad y redactá un primer mensaje comercial listo para enviar.",
+      "Hola ARIA, quiero un portal operativo para este agente: disena la interfaz, tabs, estados y una experiencia clara para operar workflows y resultados.",
   },
 ];
 
-const SELLABLE_TODAY = [
-  "Triage multiagente en una sola conversacion.",
-  "Investigacion, estrategia y respuesta comercial coordinadas.",
-  "Bajada de workflows alpha en n8n para procesos repetitivos.",
+const CAPABILITIES = [
+  "Le escribis a ARIA aca abajo y ella decide si dispara n8n.",
+  "FORGE puede bajar la parte operativa del flujo web.",
+  "ECHO y VOX pueden empujar copy, estructura y direccion creativa.",
 ];
 
-const LIMITS = [
-  "No vender autonomia total sin supervision.",
-  "No prometer backoffice critico ni ejecucion ciega.",
-  "Mejor venderlo como piloto guiado de alto valor.",
-];
-
-export default function AlphaGuideCard({
-  onRunPrompt,
-  onRunN8nDemo,
-  n8nDemoStatus,
-  n8nDemoMessage,
-}: AlphaGuideCardProps) {
+export default function AlphaGuideCard({ onRunPrompt }: AlphaGuideCardProps) {
   return (
     <div
       className="relative overflow-hidden px-3 py-3"
       style={{
         background:
-          "linear-gradient(180deg, rgba(17,24,39,0.94) 0%, rgba(15,23,42,0.94) 52%, rgba(10,10,20,0.98) 100%)",
-        border: "1px solid rgba(56,189,248,0.18)",
-        borderRadius: "6px",
-        boxShadow: "0 0 24px rgba(14,165,233,0.08)",
+          "linear-gradient(180deg, rgba(15,22,35,0.96) 0%, rgba(10,15,26,0.96) 52%, rgba(7,11,20,0.99) 100%)",
+        border: "1px solid rgba(34,211,238,0.18)",
+        borderRadius: "10px",
+        boxShadow: "0 0 28px rgba(34,211,238,0.08)",
       }}
     >
       <div
         className="absolute inset-0 pointer-events-none"
         style={{
           background:
-            "radial-gradient(circle at top right, rgba(34,211,238,0.14), transparent 38%), radial-gradient(circle at bottom left, rgba(249,115,22,0.12), transparent 32%)",
+            "radial-gradient(circle at top right, rgba(34,211,238,0.14), transparent 36%), radial-gradient(circle at bottom left, rgba(249,115,22,0.12), transparent 30%)",
         }}
       />
 
@@ -69,37 +55,37 @@ export default function AlphaGuideCard({
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <span className="text-[9px] font-mono tracking-[0.26em] text-cyan-300/70 uppercase">
-              Alpha Playbook
+              ARIA Concierge
             </span>
-            <div className="mt-1 text-[13px] font-semibold text-white">Como vender este alpha hoy</div>
+            <div className="mt-1 text-[14px] font-semibold text-white">Hola, soy ARIA. En que te podemos ayudar?</div>
           </div>
           <span
             className="shrink-0 rounded-sm px-1.5 py-0.5 text-[8px] font-mono tracking-[0.2em]"
             style={{
               color: "#f8fafc",
-              background: "rgba(56,189,248,0.14)",
-              border: "1px solid rgba(56,189,248,0.3)",
+              background: "rgba(34,211,238,0.14)",
+              border: "1px solid rgba(34,211,238,0.3)",
             }}
           >
-            B2B ALPHA
+            LIVE
           </span>
         </div>
 
-        <p className="text-[11px] leading-relaxed text-white/70">
-          Vende coordinacion operativa entre research, decision, automatizacion y respuesta al cliente. No vendas
-          una IA general: vende un puesto operativo guiado.
+        <p className="text-[11px] leading-relaxed text-white/72">
+          Escribime en el centro de comandos. Si queres una web, una landing o un portal, coordino al equipo y uso
+          `n8n` desde aca sin mandarte a otro formulario.
         </p>
 
         <div className="space-y-1.5">
-          <div className="text-[9px] font-mono tracking-[0.2em] text-cyan-200/65 uppercase">Lo vendible hoy</div>
-          {SELLABLE_TODAY.map((item) => (
+          <div className="text-[9px] font-mono tracking-[0.2em] text-cyan-200/65 uppercase">Lo que podemos hacer</div>
+          {CAPABILITIES.map((item) => (
             <div
               key={item}
-              className="rounded-sm px-2 py-1 text-[10px] leading-relaxed"
+              className="rounded-md px-2 py-1.5 text-[10px] leading-relaxed"
               style={{
                 background: "rgba(255,255,255,0.04)",
                 border: "1px solid rgba(255,255,255,0.06)",
-                color: "rgba(255,255,255,0.68)",
+                color: "rgba(255,255,255,0.7)",
               }}
             >
               {item}
@@ -107,86 +93,25 @@ export default function AlphaGuideCard({
           ))}
         </div>
 
-        <div className="rounded-sm px-2 py-2" style={{ background: "rgba(15,23,42,0.55)", border: "1px solid rgba(255,255,255,0.06)" }}>
-          <div className="text-[9px] font-mono tracking-[0.2em] text-amber-200/65 uppercase">ICP alpha</div>
-          <div className="mt-1 text-[11px] leading-relaxed text-white/72">
-            Agencias, estudios, equipos ops y founders que hoy coordinan ventas, analisis y automatizacion a mano.
-          </div>
-        </div>
-
         <div className="space-y-1.5">
-          <div className="text-[9px] font-mono tracking-[0.2em] text-emerald-200/65 uppercase">Demos listas</div>
-          <button
-            type="button"
-            onClick={onRunN8nDemo}
-            disabled={n8nDemoStatus === "running"}
-            className="w-full rounded-sm px-2 py-2 text-left transition-colors disabled:cursor-wait disabled:opacity-70 hover:bg-white/10"
-            style={{
-              background:
-                n8nDemoStatus === "success"
-                  ? "rgba(16,185,129,0.08)"
-                  : n8nDemoStatus === "error"
-                    ? "rgba(248,113,113,0.08)"
-                    : "rgba(14,165,233,0.08)",
-              border: `1px solid ${
-                n8nDemoStatus === "success"
-                  ? "rgba(16,185,129,0.24)"
-                  : n8nDemoStatus === "error"
-                    ? "rgba(248,113,113,0.24)"
-                    : "rgba(14,165,233,0.24)"
-              }`,
-            }}
-          >
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-[10px] font-mono tracking-[0.18em] text-white">
-                {n8nDemoStatus === "running" ? "Conectando n8n" : "n8n en vivo"}
-              </span>
-              <span className="text-[8px] font-mono text-cyan-300/80">
-                {n8nDemoStatus === "running" ? "LIVE..." : "WEBHOOK"}
-              </span>
-            </div>
-            <div className="mt-1 text-[10px] leading-relaxed text-white/55">
-              Dispara el piloto real de lead intake hacia `office-ai/intake` sin salir de Office AI.
-            </div>
-          </button>
-          {n8nDemoMessage && (
-            <div
-              className="rounded-sm px-2 py-1.5 text-[10px] leading-relaxed"
-              style={{
-                background: "rgba(255,255,255,0.04)",
-                border: "1px solid rgba(255,255,255,0.06)",
-                color: n8nDemoStatus === "error" ? "rgba(254,202,202,0.92)" : "rgba(255,255,255,0.7)",
-              }}
-            >
-              {n8nDemoMessage}
-            </div>
-          )}
-          {DEMO_PROMPTS.map((demo) => (
+          <div className="text-[9px] font-mono tracking-[0.2em] text-emerald-200/65 uppercase">Pedidos rapidos</div>
+          {QUICK_REQUESTS.map((item) => (
             <button
-              key={demo.label}
+              key={item.label}
               type="button"
-              onClick={() => onRunPrompt(demo.prompt)}
-              className="w-full rounded-sm px-2 py-2 text-left transition-colors hover:bg-white/10"
+              onClick={() => onRunPrompt(item.prompt)}
+              className="w-full rounded-md px-2 py-2 text-left transition-colors hover:bg-white/10"
               style={{
                 background: "rgba(255,255,255,0.04)",
                 border: "1px solid rgba(255,255,255,0.06)",
               }}
             >
               <div className="flex items-center justify-between gap-2">
-                <span className="text-[10px] font-mono tracking-[0.18em] text-white">{demo.label}</span>
-                <span className="text-[8px] font-mono text-cyan-300/80">RUN</span>
+                <span className="text-[10px] font-mono tracking-[0.18em] text-white">{item.label}</span>
+                <span className="text-[8px] font-mono text-cyan-300/80">ARIA</span>
               </div>
-              <div className="mt-1 text-[10px] leading-relaxed text-white/55">{demo.focus}</div>
+              <div className="mt-1 text-[10px] leading-relaxed text-white/55">{item.focus}</div>
             </button>
-          ))}
-        </div>
-
-        <div className="space-y-1.5">
-          <div className="text-[9px] font-mono tracking-[0.2em] text-rose-200/65 uppercase">No prometer aun</div>
-          {LIMITS.map((item) => (
-            <div key={item} className="text-[10px] leading-relaxed text-white/45">
-              {item}
-            </div>
           ))}
         </div>
       </div>

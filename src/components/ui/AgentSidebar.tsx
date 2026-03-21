@@ -10,9 +10,6 @@ interface Props {
   teamModeEnabled: boolean;
   orchestratorRefreshKey: number;
   onRunPrompt: (prompt: string) => void;
-  onRunN8nDemo: () => void;
-  n8nDemoStatus: "idle" | "running" | "success" | "error";
-  n8nDemoMessage: string | null;
 }
 
 function subscribeToClock(onStoreChange: () => void) {
@@ -29,9 +26,6 @@ export default function AgentSidebar({
   teamModeEnabled,
   orchestratorRefreshKey,
   onRunPrompt,
-  onRunN8nDemo,
-  n8nDemoStatus,
-  n8nDemoMessage,
 }: Props) {
   const time = useSyncExternalStore(subscribeToClock, getClockSnapshot, () => null);
 
@@ -76,9 +70,6 @@ export default function AgentSidebar({
 
       <AlphaGuideCard
         onRunPrompt={onRunPrompt}
-        onRunN8nDemo={onRunN8nDemo}
-        n8nDemoStatus={n8nDemoStatus}
-        n8nDemoMessage={n8nDemoMessage}
       />
 
       <RunObservabilityCard refreshKey={orchestratorRefreshKey} />

@@ -8,7 +8,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, '..');
 const workflowDir = path.join(repoRoot, 'n8n', 'workflows');
-const oracleDbPath = path.join(process.env.USERPROFILE, '.n8n', '.n8n', 'database.sqlite');
+const repoDbPaths = [
+  path.join(repoRoot, 'n8n', '.n8n', 'database.sqlite'),
+  path.join(repoRoot, 'n8n', '.n8n', '.n8n', 'database.sqlite'),
+];
 
 const oracleAgents = [
   {
@@ -116,6 +119,7 @@ function webhook(id, position, name, routePath) {
     },
     id,
     name,
+    webhookId: id,
     type: 'n8n-nodes-base.webhook',
     typeVersion: 2.1,
     position,
@@ -169,7 +173,9 @@ function executeWorkflowNode(id, position, name, workflowIdExpression) {
   return {
     parameters: {
       source: 'database',
-      workflowId: workflowIdExpression,
+      workflowId: {
+        value: workflowIdExpression,
+      },
       mode: 'each',
       options: {
         waitForSubWorkflow: true,
@@ -260,6 +266,12 @@ function buildOracleAgentWorkflow(agent) {
       `const payload = $json.body && typeof $json.body === 'object' ? $json.body : $json;
 const rawPrompt = String(payload.prompt ?? payload.message ?? payload.task ?? '').trim();
 const prompt = rawPrompt || '${agent.manualPrompt}';
+const requestedSource = String(payload.source ?? '').trim().toLowerCase();
+const executionSource = $json.body
+  ? 'webhook'
+  : requestedSource === 'manual'
+    ? 'manual'
+    : 'workflow';
 return [
   {
     json: {
@@ -269,58 +281,179 @@ return [
       role: '${agent.role}',
       specialty: '${agent.specialty}',
       prompt,
+      task: prompt.replace(/\\s+/g, ' ').trim().slice(0, 420),
       requestedBy: String(payload.requestedBy ?? 'ARIA'),
-      source: payload.source ?? ($json.body ? 'webhook' : 'workflow'),
+      source: requestedSource || executionSource,
+      executionSource,
       cutoffReason: payload.cutoffReason ?? 'not-needed',
-      executionOrder: payload.executionOrder ?? [],
+      executionOrder: Array.isArray(payload.executionOrder) ? payload.executionOrder : [],
       tieBreakerContext: payload.tieBreakerContext ?? null,
+      appBaseUrl: String(payload.appBaseUrl ?? 'http://127.0.0.1:3000').trim() || 'http://127.0.0.1:3000',
       freeOnly: true,
     },
   },
 ];`
     ),
     codeNode(
-      `${agent.slug}-build-output`,
+      `${agent.slug}-build-prompt`,
       [820, 340],
-      'Build Specialist Output',
-      `const prompt = $json.prompt ?? '';
-const compactTask = prompt.length > 140 ? prompt.slice(0, 137) + '...' : prompt;
+      'Build Specialist Prompt',
+      `const promptLines = [
+  '@${agent.id} resolve esta tarea para Oracle AI con una salida final utilizable.',
+  'Rol: ${agent.role}.',
+  'Especialidad: ${agent.specialty}.',
+  'Pedido original: ' + ($json.prompt ?? 'Resolver la tarea actual'),
+  $json.tieBreakerContext?.tieBreakerReason
+    ? 'Contexto de desempate: ' + $json.tieBreakerContext.tieBreakerReason
+    : '',
+  'Formato obligatorio:',
+  '- Resumen',
+  '- Evidencia',
+  '- Riesgos',
+  '- Proximos pasos',
+  'No repitas el prompt, no menciones a otros agentes y no digas "puedo ayudarte".',
+].filter(Boolean);
 return {
   json: {
     ...$json,
-    task: compactTask,
-    thought: '${agent.id} reviso el pedido y produjo una salida corta y accionable.',
-    message: '${agent.id} recomienda ejecutar un frente puntual alineado con su especialidad.',
-    findings: [
-      '${agent.id} detecto una oportunidad clara vinculada al pedido',
-      '${agent.id} sugiere mantener foco en una sola decision por iteracion',
-    ],
-    risks: [
-      '${agent.id} marco una dependencia o supuesto a validar',
-    ],
-    nextSteps: [
-      '${agent.id} propone un siguiente paso corto y medible',
-      'Cerrar con sintesis desde ARIA',
-    ],
-    latencyMs: 900,
+    specialistPrompt: promptLines.join('\\n'),
+  },
+};`,
+      'runOnceForEachItem'
+    ),
+    codeNode(
+      `${agent.slug}-run-real`,
+      [1100, 340],
+      'Run Real Specialist',
+      `const baseUrl = String($json.appBaseUrl ?? 'http://127.0.0.1:3000').replace(/\\/+$/, '');
+const lowerPrompt = String($json.prompt ?? '').toLowerCase();
+const timeoutMs = /profundo|deep|completo|detallado/.test(lowerPrompt) ? 240000 : 180000;
+try {
+  const parsed = await this.helpers.httpRequest({
+    method: 'POST',
+    url: baseUrl + '/api/orchestrator',
+    body: {
+      prompt: $json.specialistPrompt,
+      teamMode: false,
+      currentAgents: [],
+    },
+    json: true,
+    timeout: timeoutMs,
+  });
+  return {
+    json: {
+      ...$json,
+      appBaseUrl: baseUrl,
+      specialistRun: parsed,
+    },
+  };
+} catch (error) {
+  return {
+    json: {
+      ...$json,
+      appBaseUrl: baseUrl,
+      specialistRun: null,
+      specialistError: error instanceof Error ? error.message : String(error),
+      specialistErrorCode:
+        error && typeof error === 'object' && 'code' in error ? String(error.code) : 'ORCHESTRATOR_ERROR',
+      specialistErrorResponse:
+        error && typeof error === 'object' && 'response' in error && error.response?.body
+          ? error.response.body
+          : null,
+    },
+  };
+}`,
+      'runOnceForEachItem'
+    ),
+    codeNode(
+      `${agent.slug}-finalize`,
+      [1380, 340],
+      'Finalize Specialist Output',
+      `const run = $json.specialistRun ?? {};
+const steps = Array.isArray(run.steps) ? run.steps : [];
+const targetAgent = $json.agentId ?? '${agent.id}';
+const specialistStep =
+  steps.find((step) => step.agentId === targetAgent) ??
+  steps.find((step) => typeof step?.agentId === 'string' && step.agentId !== 'ARIA') ??
+  null;
+const ariaStep = [...steps].reverse().find((step) => step.agentId === 'ARIA') ?? null;
+const output = specialistStep?.output && typeof specialistStep.output === 'object' ? specialistStep.output : {};
+const evidence = Array.isArray(output.evidence) ? output.evidence : [];
+const findings = evidence
+  .map((item) => {
+    const claim = typeof item?.claim === 'string' ? item.claim.trim() : '';
+    const title = typeof item?.title === 'string' ? item.title.trim() : '';
+    return claim || title;
+  })
+  .filter(Boolean);
+if (findings.length === 0 && typeof output.summary === 'string' && output.summary.trim()) {
+  findings.push(output.summary.trim());
+}
+const sources = evidence
+  .map((item) => ({
+    title: typeof item?.title === 'string' ? item.title : 'Fuente',
+    url: typeof item?.url === 'string' ? item.url : '',
+  }))
+  .filter((item) => item.url);
+const provider = String(specialistStep?.provider ?? 'stub');
+const blocked = !specialistStep || provider === 'stub';
+const blockedReason = blocked
+  ? $json.specialistError ||
+    (Array.isArray(run?.trace?.errors) && run.trace.errors.length ? run.trace.errors.join(' | ') : '') ||
+    'El orquestador no devolvio una salida real para ' + targetAgent + '.'
+  : '';
+const summary =
+  typeof output.summary === 'string' && output.summary.trim()
+    ? output.summary.trim()
+    : specialistStep?.message ?? '';
+const risks = Array.isArray(output.risks) ? output.risks : [];
+const nextSteps = Array.isArray(output.nextSteps) ? output.nextSteps : [];
+return {
+  json: {
+    requestId: $json.requestId ?? 'manual',
+    workflow: $json.workflow ?? '${agent.workflowName}',
+    agentId: targetAgent,
+    role: $json.role ?? '${agent.role}',
+    specialty: $json.specialty ?? '${agent.specialty}',
+    task: $json.task ?? String($json.prompt ?? '').slice(0, 420),
+    prompt: $json.prompt ?? '',
+    source: $json.source ?? 'manual',
+    executionSource: $json.executionSource ?? 'workflow',
+    requestedBy: $json.requestedBy ?? 'ARIA',
     cutoffReason: $json.cutoffReason ?? 'not-needed',
     executionOrder: $json.executionOrder ?? [],
     tieBreakerContext: $json.tieBreakerContext ?? null,
+    blocked,
+    blockedReason,
+    provider,
+    findings,
+    risks: blocked && risks.length === 0 ? [blockedReason] : risks,
+    nextSteps:
+      blocked && nextSteps.length === 0
+        ? ['Revisar el proveedor activo, el endpoint ' + ($json.appBaseUrl ?? 'http://127.0.0.1:3000') + ' y relanzar ' + targetAgent + '.']
+        : nextSteps,
+    sources,
+    summary: blocked ? blockedReason : summary,
+    message: specialistStep?.message ?? blockedReason,
+    customerFacingOutput: ariaStep?.message ?? specialistStep?.message ?? blockedReason,
+    thought: specialistStep?.thought ?? '',
+    latencyMs: Number(run?.trace?.totalDurationMs ?? specialistStep?.trace?.durationMs ?? 0),
+    freeOnly: true,
   },
 };`,
       'runOnceForEachItem'
     ),
     switchNode(
       `${agent.slug}-return-mode`,
-      [1100, 340],
+      [1660, 340],
       'Return Mode',
-      "={{$json.source === 'webhook' ? 1 : 0}}"
+      "={{$json.executionSource === 'webhook' ? 1 : 0}}"
     ),
-    setAssignments(`${agent.slug}-preview`, [1360, 240], 'Preview Result', [
+    setAssignments(`${agent.slug}-preview`, [1920, 240], 'Preview Result', [
       assignment('resultMode', 'manual-preview'),
       assignment('summarySource', `${agent.id.toLowerCase()}-preview`),
     ]),
-    respondToWebhook(`${agent.slug}-respond`, [1360, 440], 'Respond to Webhook'),
+    respondToWebhook(`${agent.slug}-respond`, [1920, 440], 'Respond to Webhook'),
   ];
 
   const connections = {
@@ -337,9 +470,15 @@ return {
       main: [[{ node: 'Normalize Input', type: 'main', index: 0 }]],
     },
     'Normalize Input': {
-      main: [[{ node: 'Build Specialist Output', type: 'main', index: 0 }]],
+      main: [[{ node: 'Build Specialist Prompt', type: 'main', index: 0 }]],
     },
-    'Build Specialist Output': {
+    'Build Specialist Prompt': {
+      main: [[{ node: 'Run Real Specialist', type: 'main', index: 0 }]],
+    },
+    'Run Real Specialist': {
+      main: [[{ node: 'Finalize Specialist Output', type: 'main', index: 0 }]],
+    },
+    'Finalize Specialist Output': {
       main: [[{ node: 'Return Mode', type: 'main', index: 0 }]],
     },
     'Return Mode': {
@@ -743,24 +882,153 @@ function writeWorkflowFiles(definitions) {
   }
 }
 
-function syncDatabase(definitions) {
-  if (!fs.existsSync(oracleDbPath)) {
-    return { dbPath: oracleDbPath, updated: 0, matchedNames: [] };
+function replaceIds(value, replacements) {
+  if (Array.isArray(value)) {
+    return value.map((item) => replaceIds(item, replacements));
   }
 
-  const db = new DatabaseSync(oracleDbPath);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, nestedValue]) => [key, replaceIds(nestedValue, replacements)])
+    );
+  }
+
+  if (typeof value === 'string') {
+    let replaced = value;
+    for (const [placeholder, actualValue] of Object.entries(replacements)) {
+      if (!placeholder || !actualValue) continue;
+      replaced = replaced.split(placeholder).join(actualValue);
+    }
+    return replaced;
+  }
+
+  return value;
+}
+
+function materializeWorkflow(workflow, replacements = {}) {
+  return replaceIds(workflow, replacements);
+}
+
+function syncWebhookEntityRows(db, workflowId, workflow) {
+  db.prepare('DELETE FROM webhook_entity WHERE workflowId = ?').run(workflowId);
+
+  if (!workflow.active) {
+    return;
+  }
+
+  const insertWebhookRow = db.prepare(`
+    INSERT OR REPLACE INTO webhook_entity (
+      workflowId,
+      webhookPath,
+      method,
+      node,
+      webhookId,
+      pathLength
+    ) VALUES (?, ?, ?, ?, ?, ?)
+  `);
+
+  const webhookNodes = Array.isArray(workflow.nodes)
+    ? workflow.nodes.filter((node) => node.type === 'n8n-nodes-base.webhook')
+    : [];
+
+  for (const node of webhookNodes) {
+    const webhookPath = String(node?.parameters?.path ?? '').replace(/^\/+/, '');
+    if (!webhookPath) continue;
+
+    const method = String(node?.parameters?.httpMethod ?? 'POST').toUpperCase();
+    insertWebhookRow.run(
+      workflowId,
+      webhookPath,
+      method,
+      String(node?.name ?? node?.id ?? 'Webhook'),
+      String(node?.webhookId ?? node?.id ?? ''),
+      webhookPath.length
+    );
+  }
+}
+
+function syncWorkflowHistoryRow(db, row, workflow, versionId, now) {
+  db.prepare(`
+    INSERT OR REPLACE INTO workflow_history (
+      versionId,
+      workflowId,
+      authors,
+      createdAt,
+      updatedAt,
+      nodes,
+      connections,
+      name,
+      autosaved,
+      description
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    versionId,
+    row.id,
+    'import',
+    now,
+    now,
+    JSON.stringify(workflow.nodes),
+    JSON.stringify(workflow.connections),
+    workflow.name ?? null,
+    0,
+    workflow.description ?? null
+  );
+}
+
+function syncPublishedVersionRow(db, workflowId, versionId, isActive, now) {
+  db.prepare('DELETE FROM workflow_published_version WHERE workflowId = ?').run(workflowId);
+
+  if (!isActive) {
+    return;
+  }
+
+  db.prepare(`
+    INSERT OR REPLACE INTO workflow_published_version (
+      workflowId,
+      publishedVersionId,
+      createdAt,
+      updatedAt
+    ) VALUES (?, ?, ?, ?)
+  `).run(workflowId, versionId, now, now);
+}
+
+function deactivateWorkflowRow(db, rowId, now) {
+  db.prepare(`
+    UPDATE workflow_entity
+    SET
+      activeVersionId = NULL,
+      updatedAt = ?,
+      active = 0
+    WHERE id = ?
+  `).run(now, rowId);
+
+  syncPublishedVersionRow(db, rowId, null, false, now);
+  syncWebhookEntityRows(db, rowId, { active: false, nodes: [] });
+}
+
+function syncDatabase(dbPath, definitions) {
+  if (!fs.existsSync(dbPath)) {
+    return { dbPath, updated: 0, deactivated: 0, matchedNames: [] };
+  }
+
+  const db = new DatabaseSync(dbPath);
   const now = new Date().toISOString().slice(0, 23).replace('T', ' ');
   let updated = 0;
+  let deactivated = 0;
   const matchedNames = [];
 
   const rowsByName = {};
   for (const name of Object.keys(definitions)) {
     rowsByName[name] = db
-      .prepare('SELECT id, versionCounter, active FROM workflow_entity WHERE name = ? ORDER BY id')
+      .prepare('SELECT id, versionCounter FROM workflow_entity WHERE name = ? ORDER BY createdAt DESC, id DESC')
       .all(name);
   }
 
   function updateRow(row, workflow) {
+    const nextVersionId = crypto.randomUUID();
+
+    syncWorkflowHistoryRow(db, row, workflow, nextVersionId, now);
+
     db.prepare(`
       UPDATE workflow_entity
       SET
@@ -771,6 +1039,7 @@ function syncDatabase(definitions) {
         pinData = ?,
         meta = ?,
         versionId = ?,
+        activeVersionId = ?,
         versionCounter = ?,
         description = ?,
         updatedAt = ?,
@@ -783,50 +1052,77 @@ function syncDatabase(definitions) {
       workflow.staticData === null ? null : JSON.stringify(workflow.staticData),
       JSON.stringify(workflow.pinData ?? {}),
       JSON.stringify(workflow.meta ?? {}),
-      crypto.randomUUID(),
+      nextVersionId,
+      workflow.active ? nextVersionId : null,
       Number(row.versionCounter ?? 1) + 1,
       workflow.description ?? null,
       now,
-      row.active ? 1 : 0,
+      workflow.active ? 1 : 0,
       row.id
     );
+
+    syncPublishedVersionRow(db, row.id, nextVersionId, workflow.active, now);
+    syncWebhookEntityRows(db, row.id, workflow);
   }
 
-  for (const [name, rows] of Object.entries(rowsByName)) {
-    const workflow = definitions[name].workflow;
-    for (const row of rows) {
-      updateRow(row, workflow);
-      updated += 1;
+  function syncSingleActiveRow(name, workflow, rows) {
+    if (rows.length === 0) {
+      matchedNames.push(`${name} -> missing in DB`);
+      return null;
     }
-    if (rows.length > 0) {
-      matchedNames.push(`${name} x${rows.length}`);
+
+    const primaryRow = rows[0];
+    updateRow(primaryRow, workflow);
+    updated += 1;
+
+    for (const duplicateRow of rows.slice(1)) {
+      deactivateWorkflowRow(db, duplicateRow.id, now);
+      deactivated += 1;
     }
+
+    matchedNames.push(`${name} x${rows.length} -> 1 active`);
+    return primaryRow;
   }
 
-  return { dbPath: oracleDbPath, updated, matchedNames };
+  const canonicalRowsByName = {};
+
+  for (const agent of oracleAgents) {
+    const name = agent.workflowName;
+    const rows = rowsByName[name] ?? [];
+    const workflow = materializeWorkflow(definitions[name].workflow);
+    canonicalRowsByName[name] = syncSingleActiveRow(name, workflow, rows);
+  }
+
+  const routerRows = rowsByName['Oracle AI - ARIA Router'] ?? [];
+  const replacements = Object.fromEntries(
+    oracleAgents.map((agent) => [placeholderMap[agent.id], canonicalRowsByName[agent.workflowName]?.id ?? ''])
+  );
+
+  if (routerRows.length > 0 && Object.values(replacements).every(Boolean)) {
+    const workflow = materializeWorkflow(definitions['Oracle AI - ARIA Router'].workflow, replacements);
+    syncSingleActiveRow('Oracle AI - ARIA Router', workflow, routerRows);
+  } else if (routerRows.length > 0) {
+    matchedNames.push('Oracle AI - ARIA Router -> missing dependent workflow IDs');
+  } else {
+    matchedNames.push('Oracle AI - ARIA Router -> missing in DB');
+  }
+
+  return { dbPath, updated, deactivated, matchedNames };
 }
 
 const placeholderMap = Object.fromEntries(
   oracleAgents.map((agent) => [agent.id, `__${agent.id}_WORKFLOW_ID__`])
 );
 
-const db = fs.existsSync(oracleDbPath) ? new DatabaseSync(oracleDbPath) : null;
-const actualMap = {};
-if (db) {
-  for (const agent of oracleAgents) {
-    const row = db
-      .prepare('SELECT id FROM workflow_entity WHERE name = ? ORDER BY id LIMIT 1')
-      .get(agent.workflowName);
-    actualMap[agent.id] = row?.id ?? placeholderMap[agent.id];
-  }
+const workflowDefinitions = oracleWorkflowDefinitions(placeholderMap);
+writeWorkflowFiles(workflowDefinitions);
+
+const results = repoDbPaths.map((dbPath) => syncDatabase(dbPath, workflowDefinitions));
+
+for (const result of results) {
+  console.log(`DB: ${result.dbPath}`);
+  console.log(`Updated rows: ${result.updated}`);
+  console.log(`Deactivated duplicates: ${result.deactivated}`);
+  console.log(`Matched: ${result.matchedNames.join(', ') || 'none'}`);
+  console.log('');
 }
-
-const fileDefinitions = oracleWorkflowDefinitions(placeholderMap);
-writeWorkflowFiles(fileDefinitions);
-
-const runtimeDefinitions = oracleWorkflowDefinitions(actualMap);
-const result = syncDatabase(runtimeDefinitions);
-
-console.log(`DB: ${result.dbPath}`);
-console.log(`Updated rows: ${result.updated}`);
-console.log(`Matched: ${result.matchedNames.join(', ') || 'none'}`);

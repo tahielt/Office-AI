@@ -915,6 +915,60 @@ function getEnvInt(name: string, fallback: number) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function isSlowLocalProvider() {
+  return getRequestedProvider() === "ollama";
+}
+
+function getAdaptiveTimeoutMs(envName: string, fastFallback: number, slowFallback: number) {
+  return getEnvInt(envName, isSlowLocalProvider() ? slowFallback : fastFallback);
+}
+
+function getPlannerTimeoutMs() {
+  return getAdaptiveTimeoutMs("OFFICE_AI_PLANNER_TIMEOUT_MS", 4500, 9000);
+}
+
+function getSubAgentGenerationTimeoutMs(rapidMode: boolean) {
+  return rapidMode
+    ? getAdaptiveTimeoutMs("OFFICE_AI_SUBAGENT_RAPID_TIMEOUT_MS", 3200, 7000)
+    : getAdaptiveTimeoutMs("OFFICE_AI_SUBAGENT_TIMEOUT_MS", 4500, 12000);
+}
+
+function getSubAgentBatchTimeoutMs(rapidMode: boolean) {
+  return rapidMode
+    ? getAdaptiveTimeoutMs("OFFICE_AI_SUBAGENT_BATCH_RAPID_TIMEOUT_MS", 3600, 8000)
+    : getAdaptiveTimeoutMs("OFFICE_AI_SUBAGENT_BATCH_TIMEOUT_MS", 5000, 14000);
+}
+
+function getLeadGenerationTimeoutMs(agentId: AgentId, rapidMode: boolean) {
+  if (rapidMode) {
+    return getAdaptiveTimeoutMs("OFFICE_AI_LEAD_RAPID_TIMEOUT_MS", 3800, 7000);
+  }
+
+  if (agentId === "APEX") {
+    return getAdaptiveTimeoutMs("OFFICE_AI_APEX_TIMEOUT_MS", 6500, 18000);
+  }
+
+  return getAdaptiveTimeoutMs("OFFICE_AI_SPECIALIST_TIMEOUT_MS", 5200, 16000);
+}
+
+function getGenericGenerationTimeoutMs(agentId: AgentId) {
+  if (agentId === "ARIA") {
+    return getAdaptiveTimeoutMs("OFFICE_AI_ARIA_TIMEOUT_MS", 5000, 9000);
+  }
+
+  if (agentId === "APEX") {
+    return getAdaptiveTimeoutMs("OFFICE_AI_APEX_GENERIC_TIMEOUT_MS", 6000, 18000);
+  }
+
+  return getAdaptiveTimeoutMs("OFFICE_AI_GENERIC_TIMEOUT_MS", 4500, 14000);
+}
+
+function getDelegatedExecutionTimeoutMs(delegatedCount: number) {
+  return delegatedCount > 1
+    ? getAdaptiveTimeoutMs("OFFICE_AI_ROUTE_MULTI_TIMEOUT_MS", 4500, 26000)
+    : getAdaptiveTimeoutMs("OFFICE_AI_ROUTE_SINGLE_TIMEOUT_MS", 5000, 22000);
+}
+
 function getScoutSynthesisMode() {
   const raw = process.env.SCOUT_SYNTHESIS_MODE?.trim().toLowerCase();
   return raw === "model" || raw === "hybrid" || raw === "extractive" ? raw : "extractive";
@@ -1472,7 +1526,7 @@ async function runSubAgent(
     {
       agentId: parentAgentId,
       maxOutputTokens: rapidMode ? 84 : 120,
-      timeoutMs: rapidMode ? 3200 : 4500,
+      timeoutMs: getSubAgentGenerationTimeoutMs(rapidMode),
       numCtx: context ? 1536 : 1024,
       temperature: 0.1,
     }
@@ -1530,7 +1584,7 @@ async function runSubAgentBatch(
 
         return withTimeout(
           runSubAgent(parentAgentId, task, assignment, context, rapidMode, extraInstructions, coordinationContext),
-          rapidMode ? 3600 : 5000,
+          getSubAgentBatchTimeoutMs(rapidMode),
           () =>
             attachSubStepMeta(
               {
@@ -1673,7 +1727,7 @@ async function planWithAria(prompt: string, roster: string, teamModeEnabled: boo
     {
       agentId: "ARIA",
       maxOutputTokens: 160,
-      timeoutMs: 4500,
+      timeoutMs: getPlannerTimeoutMs(),
       numCtx: 1600,
       temperature: 0.1,
     }
@@ -2328,7 +2382,7 @@ async function runLeadWithSubAgents(
     {
       agentId,
       maxOutputTokens: rapidMode ? 96 : agentId === "APEX" ? 160 : 132,
-      timeoutMs: rapidMode ? 3800 : agentId === "APEX" ? 6500 : 5200,
+      timeoutMs: getLeadGenerationTimeoutMs(agentId, rapidMode),
       numCtx: operativeContext || subStepsContext ? 2048 : 1280,
       temperature: 0.15,
     }
@@ -2395,7 +2449,7 @@ function getFastAriaResponse(prompt: string, teamModeEnabled: boolean) {
     return [
       buildAriaStep(
         "saludo inicial",
-        "ARIA online. Soy la secretaria central de Office AI y coordino squads internos por agente. Decime qué necesitás y activo al equipo correcto.",
+        "Hola, soy ARIA. Estoy para ayudarte a investigar, pensar estrategia, automatizar y tambien bajar una web con n8n si hace falta. Decime que queres lograr y activo al equipo correcto.",
         "INBOX detectó un saludo corto. Respondo directo sin despertar a todo el equipo para mantener la oficina ágil.",
         teamModeEnabled
       ),
@@ -2431,7 +2485,7 @@ async function runGeneric(agentId: AgentId, task: string, roster: string, teamMo
     {
       agentId,
       maxOutputTokens: agentId === "ARIA" ? 80 : agentId === "APEX" ? 120 : 96,
-      timeoutMs: agentId === "ARIA" ? 5000 : agentId === "APEX" ? 6000 : 4500,
+      timeoutMs: getGenericGenerationTimeoutMs(agentId),
       numCtx: context ? 1536 : 1280,
     }
   );
@@ -2708,10 +2762,10 @@ export async function POST(req: Request) {
                 startedAtMs
               )
             ),
-            routePlan.delegatedAgents.length > 1 ? 4500 : 5000,
+            getDelegatedExecutionTimeoutMs(routePlan.delegatedAgents.length),
             () =>
               attachStepMeta(
-                attachCoordinationData(fallback(agentId, routePlan.task, "Timeout operativo > 5s"), {
+                attachCoordinationData(fallback(agentId, routePlan.task, "Timeout operativo interno"), {
                   lane: getLeadLane(index),
                   zone: "collab",
                   interactionTargetId: "aria",

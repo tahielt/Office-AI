@@ -9,6 +9,7 @@
       },
       "id": "webhook-intake",
       "name": "Office Intake Webhook",
+      "webhookId": "webhook-intake",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
       "position": [
@@ -44,7 +45,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const input = items[0]?.json ?? {};\nconst payload = input.body && typeof input.body === 'object' ? input.body : input;\nconst accountName = typeof payload.companyName === 'string' && payload.companyName.trim()\n  ? payload.companyName.trim()\n  : 'Lead alpha';\nconst website = typeof payload.website === 'string' && payload.website.trim()\n  ? payload.website.trim()\n  : '';\nconst painPoint = typeof payload.painPoint === 'string' && payload.painPoint.trim()\n  ? payload.painPoint.trim()\n  : '';\nconst goal = typeof payload.goal === 'string' && payload.goal.trim()\n  ? payload.goal.trim()\n  : '';\nconst channel = typeof payload.channel === 'string' && payload.channel.trim()\n  ? payload.channel.trim().toLowerCase()\n  : 'email';\nconst requestedDeliverable = typeof payload.requestedDeliverable === 'string' && payload.requestedDeliverable.trim()\n  ? payload.requestedDeliverable.trim()\n  : 'brief';\nconst deliverableLabelMap = {\n  'first-message': 'primer mensaje comercial',\n  brief: 'brief comercial',\n  'pilot-plan': 'plan piloto con n8n',\n};\nconst deliverableLabel = deliverableLabelMap[requestedDeliverable] ?? requestedDeliverable;\nconst promptSeed = [payload.prompt, payload.task, payload.message, payload.text]\n  .find((value) => typeof value === 'string' && value.trim());\nconst structuredContext = [\n  'Cuenta: ' + accountName,\n  website ? 'Sitio: ' + website : '',\n  painPoint ? 'Dolor: ' + painPoint : '',\n  goal ? 'Objetivo: ' + goal : '',\n  'Canal: ' + channel,\n  'Entregable: ' + deliverableLabel,\n].filter(Boolean);\nconst prompt = promptSeed ?? ('Analizar a ' + accountName + ' y preparar ' + deliverableLabel);\nconst task = structuredContext.length > 0\n  ? prompt + '\\n' + structuredContext.join('\\n')\n  : prompt;\nconst requested = String([prompt, ...structuredContext].join(' ')).toLowerCase();\nconst mentionMap = {\n  scout: 'SCOUT',\n  apex: 'APEX',\n  zion: 'ZION',\n  forge: 'FORGE',\n  echo: 'ECHO',\n  vera: 'VERA',\n  vox: 'VOX',\n};\nconst scoreMap = new Map();\nfor (const agent of Object.values(mentionMap)) scoreMap.set(agent, 0);\nconst mentionedAgents = [];\nfor (const [token, agent] of Object.entries(mentionMap)) {\n  if (requested.includes(token)) {\n    mentionedAgents.push(agent);\n    scoreMap.set(agent, (scoreMap.get(agent) ?? 0) + 120);\n  }\n}\nconst weightedSignals = [\n  ['SCOUT', /(investig|compet|mercado|tendencia|web|noticia|research)/, 90],\n  ['APEX', /(repo|backend|codigo|arquitect|bug|infra|api|frontend)/, 85],\n  ['ZION', /(estrateg|growth|negocio|roadmap|plan|prioridad)/, 80],\n  ['FORGE', /(workflow|automat|n8n|deploy|implement|integraci)/, 80],\n  ['VERA', /(riesgo|metrica|analisis|dashboard|dato)/, 72],\n  ['ECHO', /(mensaje|copy|mail|respuesta|comunic)/, 68],\n  ['VOX', /(contenido|post|reel|linkedin|instagram|youtube|tiktok)/, 68],\n];\nfor (const [agent, pattern, weight] of weightedSignals) {\n  if (pattern.test(requested)) {\n    scoreMap.set(agent, (scoreMap.get(agent) ?? 0) + weight);\n  }\n}\nconst rankedAgents = [...scoreMap.entries()]\n  .filter(([, score]) => score > 0)\n  .sort((left, right) => right[1] - left[1])\n  .map(([agent]) => agent);\nconst complexityScore =\n  prompt.length +\n  rankedAgents.length * 35 +\n  (/profundo|deep|completo|detallado/.test(requested) ? 80 : 0);\nconst responseMode = complexityScore >= 160 ? 'deep' : 'rapid';\nconst topScore = scoreMap.get(rankedAgents[0] ?? 'SCOUT') ?? 0;\nconst secondScore = scoreMap.get(rankedAgents[1] ?? '') ?? 0;\nconst maxLeads = mentionedAgents.length === 1\n  ? 1\n  : topScore >= 110 && secondScore < 55\n    ? 1\n    : responseMode === 'rapid'\n      ? 2\n      : 3;\nconst leadAgents = (rankedAgents.length ? rankedAgents : ['SCOUT']).slice(0, maxLeads);\nconst cutoffReason = maxLeads === 1\n  ? (mentionedAgents.length === 1 ? 'explicit-single-lead' : 'single-high-confidence-lead')\n  : responseMode === 'rapid'\n    ? 'rapid-lane-cap'\n    : 'deep-multi-lead';\nreturn [\n  {\n    json: {\n      requestId: payload.requestId ?? 'req-' + Date.now(),\n      task,\n      accountName,\n      website,\n      painPoint,\n      goal,\n      channel,\n      requestedDeliverable,\n      deliverableLabel,\n      leadAgents: leadAgents.length ? leadAgents : ['SCOUT'],\n      decisionOrder: leadAgents.map((agent, index) => ({\n        agent,\n        order: index + 1,\n        score: scoreMap.get(agent) ?? 0,\n      })),\n      reserveLeadPool: rankedAgents.slice(maxLeads, 3),\n      source: payload.source ?? 'webhook',\n      freeOnly: true,\n      complexityScore,\n      responseMode,\n      earlyStopEligible: maxLeads === 1,\n      cutoffReason,\n      maxLeads,\n      maxLatencyMs: responseMode === 'rapid' ? 2500 : 4500,\n    },\n  },\n];"
+        "jsCode": "const input = items[0]?.json ?? {};\nconst payload = input.body && typeof input.body === 'object' ? input.body : input;\nconst executionSource = input.body && typeof input.body === 'object' ? 'webhook' : 'manual';\nconst upstreamSource =\n  typeof payload.source === 'string' && payload.source.trim()\n    ? payload.source.trim()\n    : executionSource;\nconst accountName = typeof payload.companyName === 'string' && payload.companyName.trim()\n  ? payload.companyName.trim()\n  : 'Lead alpha';\nconst website = typeof payload.website === 'string' && payload.website.trim()\n  ? payload.website.trim()\n  : '';\nconst painPoint = typeof payload.painPoint === 'string' && payload.painPoint.trim()\n  ? payload.painPoint.trim()\n  : '';\nconst goal = typeof payload.goal === 'string' && payload.goal.trim()\n  ? payload.goal.trim()\n  : '';\nconst channel = typeof payload.channel === 'string' && payload.channel.trim()\n  ? payload.channel.trim().toLowerCase()\n  : 'email';\nconst requestedDeliverable = typeof payload.requestedDeliverable === 'string' && payload.requestedDeliverable.trim()\n  ? payload.requestedDeliverable.trim()\n  : 'brief';\nconst deliverableLabelMap = {\n  'first-message': 'primer mensaje comercial',\n  brief: 'brief comercial',\n  'pilot-plan': 'plan piloto con n8n',\n};\nconst deliverableLabel = deliverableLabelMap[requestedDeliverable] ?? requestedDeliverable;\nconst promptSeed = [payload.prompt, payload.task, payload.message, payload.text]\n  .find((value) => typeof value === 'string' && value.trim());\nconst structuredContext = [\n  'Cuenta: ' + accountName,\n  website ? 'Sitio: ' + website : '',\n  painPoint ? 'Dolor: ' + painPoint : '',\n  goal ? 'Objetivo: ' + goal : '',\n  'Canal: ' + channel,\n  'Entregable: ' + deliverableLabel,\n].filter(Boolean);\nconst prompt = promptSeed ?? ('Analizar a ' + accountName + ' y preparar ' + deliverableLabel);\nconst task = structuredContext.length > 0\n  ? prompt + '\\n' + structuredContext.join('\\n')\n  : prompt;\nconst requested = String([prompt, ...structuredContext].join(' ')).toLowerCase();\nconst mentionMap = {\n  scout: 'SCOUT',\n  apex: 'APEX',\n  zion: 'ZION',\n  forge: 'FORGE',\n  echo: 'ECHO',\n  vera: 'VERA',\n  vox: 'VOX',\n};\nconst scoreMap = new Map();\nfor (const agent of Object.values(mentionMap)) scoreMap.set(agent, 0);\nconst mentionedAgents = [];\nfor (const [token, agent] of Object.entries(mentionMap)) {\n  if (requested.includes(token)) {\n    mentionedAgents.push(agent);\n    scoreMap.set(agent, (scoreMap.get(agent) ?? 0) + 120);\n  }\n}\nconst weightedSignals = [\n  ['SCOUT', /(investig|compet|mercado|tendencia|web|noticia|research)/, 90],\n  ['APEX', /(repo|backend|codigo|arquitect|bug|infra|api|frontend)/, 85],\n  ['ZION', /(estrateg|growth|negocio|roadmap|plan|prioridad)/, 80],\n  ['FORGE', /(workflow|automat|n8n|deploy|implement|integraci)/, 80],\n  ['VERA', /(riesgo|metrica|analisis|dashboard|dato)/, 72],\n  ['ECHO', /(mensaje|copy|mail|respuesta|comunic)/, 68],\n  ['VOX', /(contenido|post|reel|linkedin|instagram|youtube|tiktok)/, 68],\n];\nfor (const [agent, pattern, weight] of weightedSignals) {\n  if (pattern.test(requested)) {\n    scoreMap.set(agent, (scoreMap.get(agent) ?? 0) + weight);\n  }\n}\nconst rankedAgents = [...scoreMap.entries()]\n  .filter(([, score]) => score > 0)\n  .sort((left, right) => right[1] - left[1])\n  .map(([agent]) => agent);\nconst complexityScore =\n  prompt.length +\n  rankedAgents.length * 35 +\n  (/profundo|deep|completo|detallado/.test(requested) ? 80 : 0);\nconst responseMode = complexityScore >= 160 ? 'deep' : 'rapid';\nconst topScore = scoreMap.get(rankedAgents[0] ?? 'SCOUT') ?? 0;\nconst secondScore = scoreMap.get(rankedAgents[1] ?? '') ?? 0;\nconst maxLeads = mentionedAgents.length === 1\n  ? 1\n  : topScore >= 110 && secondScore < 55\n    ? 1\n    : responseMode === 'rapid'\n      ? 2\n      : 3;\nconst leadAgents = (rankedAgents.length ? rankedAgents : ['SCOUT']).slice(0, maxLeads);\nconst cutoffReason = maxLeads === 1\n  ? (mentionedAgents.length === 1 ? 'explicit-single-lead' : 'single-high-confidence-lead')\n  : responseMode === 'rapid'\n    ? 'rapid-lane-cap'\n    : 'deep-multi-lead';\nreturn [\n  {\n    json: {\n      requestId: payload.requestId ?? 'req-' + Date.now(),\n      task,\n      accountName,\n      website,\n      painPoint,\n      goal,\n      channel,\n      requestedDeliverable,\n      deliverableLabel,\n      leadAgents: leadAgents.length ? leadAgents : ['SCOUT'],\n      decisionOrder: leadAgents.map((agent, index) => ({\n        agent,\n        order: index + 1,\n        score: scoreMap.get(agent) ?? 0,\n      })),\n      reserveLeadPool: rankedAgents.slice(maxLeads, 3),\n      source: executionSource,\n      upstreamSource,\n      freeOnly: true,\n      complexityScore,\n      responseMode,\n      earlyStopEligible: maxLeads === 1,\n      cutoffReason,\n      maxLeads,\n      maxLatencyMs: responseMode === 'rapid' ? 2500 : 4500,\n    },\n  },\n];"
       },
       "id": "normalize-intake",
       "name": "Normalize Intake",
@@ -75,19 +76,19 @@
         "assignments": {
           "assignments": [
             {
-              "id": "lane-2392b038",
+              "id": "lane-2b56180a",
               "name": "lane",
               "value": "rapid",
               "type": "string"
             },
             {
-              "id": "targetLatencyMs-6bac96b1",
+              "id": "targetLatencyMs-b922b700",
               "name": "targetLatencyMs",
               "value": 2500,
               "type": "number"
             },
             {
-              "id": "handoffPlan-c161ddf4",
+              "id": "handoffPlan-d5a4a192",
               "name": "handoffPlan",
               "value": "brief-builder -> specialist-runner -> compact-assembler",
               "type": "string"
@@ -110,19 +111,19 @@
         "assignments": {
           "assignments": [
             {
-              "id": "lane-5d8ad7cd",
+              "id": "lane-f37b627b",
               "name": "lane",
               "value": "deep",
               "type": "string"
             },
             {
-              "id": "targetLatencyMs-1253bf50",
+              "id": "targetLatencyMs-eefb6d1c",
               "name": "targetLatencyMs",
               "value": 4500,
               "type": "number"
             },
             {
-              "id": "handoffPlan-411e48b3",
+              "id": "handoffPlan-2a51eaea",
               "name": "handoffPlan",
               "value": "brief-builder -> specialist-runner -> full-assembler",
               "type": "string"
@@ -143,7 +144,9 @@
     {
       "parameters": {
         "source": "database",
-        "workflowId": "__LEAD_BRIEF_BUILDER_ID__",
+        "workflowId": {
+          "value": "__LEAD_BRIEF_BUILDER_ID__"
+        },
         "mode": "once",
         "options": {
           "waitForSubWorkflow": true
@@ -161,7 +164,9 @@
     {
       "parameters": {
         "source": "database",
-        "workflowId": "__SPECIALIST_RUNNER_ID__",
+        "workflowId": {
+          "value": "__SPECIALIST_RUNNER_ID__"
+        },
         "mode": "once",
         "options": {
           "waitForSubWorkflow": true
@@ -222,7 +227,9 @@
     {
       "parameters": {
         "source": "database",
-        "workflowId": "__LEAD_BRIEF_BUILDER_ID__",
+        "workflowId": {
+          "value": "__LEAD_BRIEF_BUILDER_ID__"
+        },
         "mode": "once",
         "options": {
           "waitForSubWorkflow": true
@@ -240,7 +247,9 @@
     {
       "parameters": {
         "source": "database",
-        "workflowId": "__SPECIALIST_RUNNER_ID__",
+        "workflowId": {
+          "value": "__SPECIALIST_RUNNER_ID__"
+        },
         "mode": "once",
         "options": {
           "waitForSubWorkflow": true
@@ -286,7 +295,9 @@
     {
       "parameters": {
         "source": "database",
-        "workflowId": "__RESPONSE_ASSEMBLER_ID__",
+        "workflowId": {
+          "value": "__RESPONSE_ASSEMBLER_ID__"
+        },
         "mode": "once",
         "options": {
           "waitForSubWorkflow": true
@@ -321,13 +332,13 @@
         "assignments": {
           "assignments": [
             {
-              "id": "resultMode-7c4de8f1",
+              "id": "resultMode-97a47f72",
               "name": "resultMode",
               "value": "manual-preview",
               "type": "string"
             },
             {
-              "id": "summarySource-2a2dc52a",
+              "id": "summarySource-0420a88b",
               "name": "summarySource",
               "value": "n8n-office-router",
               "type": "string"
@@ -596,6 +607,6 @@
     "templateCredsSetupCompleted": true,
     "officeAiFreeOnly": true
   },
-  "active": false,
+  "active": true,
   "description": "Router gratuito con webhook y modo manual que decide orden, tope 1/2/3 leads, corte temprano y desempate antes de llamar a los subworkflows de Office AI."
 }

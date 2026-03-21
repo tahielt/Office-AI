@@ -46,3 +46,7 @@ n8n/.n8n/
 
 # local orchestrator runtime data
 .office-ai/
+
+# local temp logs
+.tmp-*.log
+.tmp-*.err.log

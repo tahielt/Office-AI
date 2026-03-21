@@ -1,0 +1,693 @@
+{
+  "name": "CRM - Chatwoot WhatsApp Telegram Bridge",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "crm/chatwoot/events",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "chatwoot-webhook",
+      "name": "Chatwoot Events",
+      "webhookId": "chatwoot-webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        220,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "crm/whatsapp/inbound",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "whatsapp-verify",
+      "name": "WhatsApp Verify",
+      "webhookId": "whatsapp-verify",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        220,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "crm/whatsapp/inbound",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "whatsapp-webhook",
+      "name": "WhatsApp Inbound",
+      "webhookId": "whatsapp-webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        220,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "crm/telegram/inbound",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "telegram-webhook",
+      "name": "Telegram Inbound",
+      "webhookId": "telegram-webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        220,
+        560
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "manual-bridge",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        220,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [\n  {\n    json: {\n      event: 'message_created',\n      source: 'manual',\n      inbox: { name: 'WhatsApp Bridge' },\n      conversation: {\n        id: 'cw-7821',\n        channel: 'Channel::Api',\n        contact_inbox: { source_id: '5491100001111' },\n      },\n      contact: {\n        name: 'Lucia Gomez',\n        phone_number: '+5491100001111',\n      },\n      message_type: 'outgoing',\n      private: false,\n      content: 'Hola Lucia, te escribimos desde Chatwoot para continuar tu consulta.',\n      assignee: { name: 'Equipo CRM' },\n    },\n  },\n];"
+      },
+      "id": "sample-bridge-event",
+      "name": "Sample Bridge Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const input = items[0]?.json ?? {};\nconst payload = input.body && typeof input.body === 'object' ? input.body : input;\nconst headers = input.headers && typeof input.headers === 'object' ? input.headers : {};\nconst query = input.query && typeof input.query === 'object' ? input.query : {};\nconst executionSource = input.body ? 'webhook' : 'manual';\nconst whatsappValue = payload.entry?.[0]?.changes?.[0]?.value ?? {};\nconst whatsappMessage = whatsappValue.messages?.[0] ?? null;\nconst whatsappStatus = whatsappValue.statuses?.[0] ?? null;\nconst telegramMessage = payload.message ?? payload.edited_message ?? null;\nconst isTelegram = Number.isInteger(payload.update_id) && Boolean(telegramMessage);\nconst isWhatsApp = Boolean(whatsappMessage) || Boolean(whatsappStatus);\nconst isChatwoot = !isTelegram && !isWhatsApp;\nlet sourceSystem = 'chatwoot';\nlet channel = '';\nlet action = 'ignore-event';\nlet direction = 'internal';\nlet eventName = typeof payload.event === 'string' ? payload.event : 'message_created';\nlet conversationId = '';\nlet externalId = '';\nlet externalMessageId = '';\nlet contactName = '';\nlet assignedAgent = '';\nlet messageText = '';\nif (isWhatsApp) {\n  sourceSystem = 'whatsapp';\n  channel = 'whatsapp';\n  action = whatsappStatus ? 'sync-status' : 'upsert-chatwoot-message';\n  direction = whatsappStatus ? 'status' : 'incoming';\n  eventName = whatsappStatus ? 'delivery-status' : 'message_received';\n  conversationId = String(whatsappStatus?.conversation?.id ?? whatsappMessage?.from ?? '');\n  externalId = String(whatsappStatus?.recipient_id ?? whatsappMessage?.from ?? '');\n  externalMessageId = String(whatsappStatus?.id ?? whatsappMessage?.id ?? '');\n  contactName = String(whatsappValue.contacts?.[0]?.profile?.name ?? 'Contacto WhatsApp');\n  assignedAgent = 'Chatwoot';\n  messageText = String(\n    whatsappStatus?.status ??\n      whatsappMessage?.text?.body ??\n      whatsappMessage?.button?.text ??\n      whatsappMessage?.interactive?.button_reply?.title ??\n      ''\n  );\n} else if (isTelegram) {\n  sourceSystem = 'telegram';\n  channel = 'telegram';\n  action = 'upsert-chatwoot-message';\n  direction = 'incoming';\n  eventName = 'message_received';\n  conversationId = String(telegramMessage?.chat?.id ?? '');\n  externalId = String(telegramMessage?.chat?.id ?? '');\n  externalMessageId = String(telegramMessage?.message_id ?? '');\n  const firstName = String(telegramMessage?.from?.first_name ?? '');\n  const lastName = String(telegramMessage?.from?.last_name ?? '');\n  contactName = [firstName, lastName].filter(Boolean).join(' ') || 'Contacto Telegram';\n  assignedAgent = 'Chatwoot';\n  messageText = String(telegramMessage?.text ?? telegramMessage?.caption ?? '');\n} else if (isChatwoot) {\n  sourceSystem = 'chatwoot';\n  const inboxName = String(\n    payload.inbox?.name ??\n      payload.conversation?.meta?.sender?.channel ??\n      payload.conversation?.channel ??\n      payload.channel ??\n      ''\n  ).toLowerCase();\n  channel = inboxName.includes('telegram')\n    ? 'telegram'\n    : inboxName.includes('whatsapp')\n      ? 'whatsapp'\n      : String(payload.channel ?? '').toLowerCase();\n  direction = payload.message_type === 'incoming' ? 'incoming' : 'outgoing';\n  action =\n    payload.private === true || direction === 'incoming' || !String(payload.content ?? '').trim()\n      ? 'ignore-event'\n      : 'send-channel-message';\n  eventName = String(payload.event ?? 'message_created');\n  conversationId = String(payload.conversation?.id ?? payload.id ?? '');\n  externalId = String(\n    payload.conversation?.contact_inbox?.source_id ??\n      payload.contact?.phone_number ??\n      payload.contact?.identifier ??\n      ''\n  );\n  externalMessageId = String(payload.id ?? payload.message?.id ?? '');\n  contactName = String(payload.contact?.name ?? payload.conversation?.meta?.sender?.name ?? 'Contacto CRM');\n  assignedAgent = String(payload.assignee?.name ?? payload.meta?.assignee?.name ?? 'Equipo CRM');\n  messageText = String(payload.content ?? payload.message?.content ?? payload.body ?? payload.text ?? '').trim();\n}\nreturn [\n  {\n    json: {\n      requestId: payload.requestId ?? 'crm-' + Date.now(),\n      source: String(payload.source ?? executionSource),\n      executionSource,\n      sourceSystem,\n      channel,\n      action,\n      direction,\n      eventName,\n      conversationId,\n      externalId,\n      externalMessageId,\n      contactName,\n      assignedAgent,\n      messageText,\n      crm: 'chatwoot',\n      bridge: 'chatwoot-whatsapp-telegram',\n      headers,\n      query,\n      rawPayload: payload,\n    },\n  },\n];"
+      },
+      "id": "normalize-bridge-event",
+      "name": "Normalize Bridge Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "chatwootBaseUrl-0b58d365",
+              "name": "chatwootBaseUrl",
+              "value": "={{$env.CHATWOOT_BASE_URL || ''}}",
+              "type": "string"
+            },
+            {
+              "id": "chatwootAccountId-f3bdb2ef",
+              "name": "chatwootAccountId",
+              "value": "={{$env.CHATWOOT_ACCOUNT_ID || ''}}",
+              "type": "string"
+            },
+            {
+              "id": "chatwootApiToken-5edd87c5",
+              "name": "chatwootApiToken",
+              "value": "={{$env.CHATWOOT_API_TOKEN || ''}}",
+              "type": "string"
+            },
+            {
+              "id": "chatwootInboxIdWhatsapp-98268eee",
+              "name": "chatwootInboxIdWhatsapp",
+              "value": "={{$env.CHATWOOT_API_INBOX_ID_WHATSAPP || $env.CHATWOOT_INBOX_ID_WHATSAPP || ''}}",
+              "type": "string"
+            },
+            {
+              "id": "chatwootInboxIdTelegram-33d33034",
+              "name": "chatwootInboxIdTelegram",
+              "value": "={{$env.CHATWOOT_API_INBOX_ID_TELEGRAM || $env.CHATWOOT_INBOX_ID_TELEGRAM || ''}}",
+              "type": "string"
+            },
+            {
+              "id": "whatsappAccessToken-3ed05638",
+              "name": "whatsappAccessToken",
+              "value": "={{$env.WHATSAPP_ACCESS_TOKEN || ''}}",
+              "type": "string"
+            },
+            {
+              "id": "whatsappPhoneNumberId-612f25c1",
+              "name": "whatsappPhoneNumberId",
+              "value": "={{$env.WHATSAPP_PHONE_NUMBER_ID || ''}}",
+              "type": "string"
+            },
+            {
+              "id": "whatsappVerifyToken-24fb4321",
+              "name": "whatsappVerifyToken",
+              "value": "={{$env.WHATSAPP_VERIFY_TOKEN || ''}}",
+              "type": "string"
+            },
+            {
+              "id": "telegramBotToken-d13e2d62",
+              "name": "telegramBotToken",
+              "value": "={{$env.TELEGRAM_BOT_TOKEN || ''}}",
+              "type": "string"
+            },
+            {
+              "id": "telegramWebhookSecret-deb23ce7",
+              "name": "telegramWebhookSecret",
+              "value": "={{$env.TELEGRAM_WEBHOOK_SECRET || ''}}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true
+      },
+      "id": "load-bridge-config",
+      "name": "Load Runtime Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1060,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const clean = (value) => String(value ?? '').trim();\nconst channel = clean($json.channel).toLowerCase();\nconst action = clean($json.action);\nconst errors = [];\nconst targetInboxId = Number(\n  channel === 'telegram' ? clean($json.chatwootInboxIdTelegram) : clean($json.chatwootInboxIdWhatsapp)\n);\nconst externalId = clean($json.externalId);\nconst messageText = clean($json.messageText);\nconst telegramSecret = clean($json.telegramWebhookSecret);\nconst telegramHeader = clean(\n  $json.headers?.['x-telegram-bot-api-secret-token'] ??\n    $json.headers?.['X-Telegram-Bot-Api-Secret-Token']\n);\nif (!channel && action === 'send-channel-message') {\n  errors.push('No pude inferir si la conversacion de Chatwoot corresponde a WhatsApp o Telegram.');\n}\nif ($json.sourceSystem === 'telegram' && telegramSecret && telegramSecret !== telegramHeader) {\n  errors.push('El secret token de Telegram no coincide con TELEGRAM_WEBHOOK_SECRET.');\n}\nif (action === 'upsert-chatwoot-message' || action === 'sync-status') {\n  if (!clean($json.chatwootBaseUrl)) errors.push('Falta CHATWOOT_BASE_URL.');\n  if (!clean($json.chatwootAccountId)) errors.push('Falta CHATWOOT_ACCOUNT_ID.');\n  if (!clean($json.chatwootApiToken)) errors.push('Falta CHATWOOT_API_TOKEN.');\n  if (!targetInboxId) {\n    errors.push(\n      channel === 'telegram'\n        ? 'Falta CHATWOOT_API_INBOX_ID_TELEGRAM o CHATWOOT_INBOX_ID_TELEGRAM.'\n        : 'Falta CHATWOOT_API_INBOX_ID_WHATSAPP o CHATWOOT_INBOX_ID_WHATSAPP.'\n    );\n  }\n}\nif (action === 'send-channel-message') {\n  if (channel === 'telegram' && !clean($json.telegramBotToken)) {\n    errors.push('Falta TELEGRAM_BOT_TOKEN.');\n  }\n  if (channel === 'whatsapp') {\n    if (!clean($json.whatsappAccessToken)) errors.push('Falta WHATSAPP_ACCESS_TOKEN.');\n    if (!clean($json.whatsappPhoneNumberId)) errors.push('Falta WHATSAPP_PHONE_NUMBER_ID.');\n  }\n}\nif ((action === 'upsert-chatwoot-message' || action === 'send-channel-message') && !messageText) {\n  errors.push('Falta el contenido del mensaje para ejecutar el bridge real.');\n}\nif ((action === 'upsert-chatwoot-message' || action === 'send-channel-message' || action === 'sync-status') && !externalId) {\n  errors.push('Falta el externalId del contacto/canal.');\n}\nreturn {\n  json: {\n    ...$json,\n    channel,\n    action,\n    targetInboxId: Number.isFinite(targetInboxId) && targetInboxId > 0 ? targetInboxId : null,\n    identifierKey: channel && externalId ? channel + ':' + externalId : '',\n    valid: errors.length === 0,\n    configErrors: errors,\n  },\n};"
+      },
+      "id": "validate-bridge-config",
+      "name": "Validate Bridge Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1340,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 5,
+        "output": "={{!$json.valid ? 4 : $json.action === 'send-channel-message' ? 1 : $json.action === 'sync-status' ? 2 : $json.action === 'ignore-event' ? 3 : 0}}"
+      },
+      "id": "route-bridge-action",
+      "name": "Route Bridge Action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        1620,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const clean = (value) => String(value ?? '').trim();\nconst baseUrl = clean($json.chatwootBaseUrl).replace(/\\/+$/, '');\nconst accountId = clean($json.chatwootAccountId);\nconst apiToken = clean($json.chatwootApiToken);\nconst channel = clean($json.channel) || 'whatsapp';\nconst externalId = clean($json.externalId);\nconst identifierKey = clean($json.identifierKey) || channel + ':' + externalId;\nconst targetInboxId = Number($json.targetInboxId ?? 0);\nconst messageText = clean($json.messageText);\nconst contactName = clean($json.contactName) || (channel === 'telegram' ? 'Contacto Telegram' : 'Contacto WhatsApp');\nconst request = async (method, endpoint, body) =>\n  this.helpers.httpRequest({\n    method,\n    url: baseUrl + endpoint,\n    headers: {\n      'Content-Type': 'application/json',\n      api_access_token: apiToken,\n    },\n    body,\n    json: true,\n    timeout: 60000,\n  });\nconst matchContact = (candidate) => {\n  const candidateIdentifier = clean(candidate?.identifier ?? candidate?.contact_inboxes?.[0]?.source_id);\n  const candidatePhone = clean(candidate?.phone_number);\n  return (\n    candidateIdentifier === identifierKey ||\n    candidateIdentifier === externalId ||\n    candidatePhone === externalId ||\n    candidatePhone.replace(/[^0-9]/g, '') === externalId.replace(/[^0-9]/g, '')\n  );\n};\ntry {\n  let contact = null;\n  const searchTerms = [...new Set([identifierKey, externalId, externalId.replace(/[^0-9]/g, '')].filter(Boolean))];\n  for (const term of searchTerms) {\n    const searchResult = await request('GET', '/api/v1/accounts/' + accountId + '/contacts/search?q=' + encodeURIComponent(term));\n    const payload = Array.isArray(searchResult?.payload) ? searchResult.payload : Array.isArray(searchResult) ? searchResult : [];\n    contact = payload.find(matchContact) ?? payload[0] ?? null;\n    if (contact) break;\n  }\n  let contactId = Number(contact?.id ?? 0);\n  if (!contactId) {\n    const created = await request('POST', '/api/v1/accounts/' + accountId + '/contacts', {\n      inbox_id: targetInboxId,\n      name: contactName,\n      phone_number: channel === 'whatsapp' ? externalId : undefined,\n      identifier: identifierKey,\n      custom_attributes: {\n        bridge: 'n8n-chatwoot',\n        bridge_channel: channel,\n        external_id: externalId,\n      },\n    });\n    const createdPayload = created?.payload ?? created;\n    contact = createdPayload?.contact ?? createdPayload;\n    contactId = Number(contact?.id ?? createdPayload?.id ?? 0);\n  }\n  if (!contactId) {\n    throw new Error('Chatwoot no devolvio un contact_id usable.');\n  }\n  const inboxResult = await request(\n    'GET',\n    '/api/v1/accounts/' + accountId + '/contacts/' + contactId + '/contactable_inboxes'\n  );\n  const inboxes = Array.isArray(inboxResult?.payload) ? inboxResult.payload : [];\n  const hasInbox = inboxes.some((entry) => Number(entry?.inbox?.id ?? entry?.inbox_id ?? 0) === targetInboxId);\n  if (!hasInbox) {\n    await request('POST', '/api/v1/accounts/' + accountId + '/contacts/' + contactId + '/contact_inboxes', {\n      inbox_id: targetInboxId,\n      source_id: externalId,\n    });\n  }\n  const conversationsResult = await request(\n    'GET',\n    '/api/v1/accounts/' + accountId + '/contacts/' + contactId + '/conversations'\n  );\n  const conversations = Array.isArray(conversationsResult?.payload) ? conversationsResult.payload : [];\n  let conversation =\n    conversations\n      .filter((entry) => Number(entry?.inbox_id ?? 0) === targetInboxId)\n      .sort(\n        (left, right) =>\n          Number(right?.last_activity_at ?? right?.updated_at ?? 0) -\n          Number(left?.last_activity_at ?? left?.updated_at ?? 0)\n      )[0] ?? null;\n  let createdConversation = false;\n  if (!conversation) {\n    conversation = await request('POST', '/api/v1/accounts/' + accountId + '/conversations', {\n      source_id: externalId,\n      inbox_id: targetInboxId,\n      contact_id: contactId,\n      status: 'open',\n      message: {\n        content: messageText,\n      },\n    });\n    createdConversation = true;\n  }\n  const conversationId = Number(conversation?.id ?? conversation?.payload?.id ?? 0);\n  let messageId = '';\n  if (!createdConversation) {\n    const createdMessage = await request(\n      'POST',\n      '/api/v1/accounts/' + accountId + '/conversations/' + conversationId + '/messages',\n      {\n        content: messageText,\n        message_type: 'incoming',\n        private: false,\n        content_type: 'text',\n      }\n    );\n    messageId = clean(createdMessage?.id ?? createdMessage?.payload?.id ?? '');\n  }\n  return {\n    json: {\n      ...$json,\n      ok: true,\n      status: 'ok',\n      contactId,\n      conversationId,\n      externalMessageId: clean($json.externalMessageId) || messageId,\n      bridgeSummary: 'Mensaje entrante sincronizado en Chatwoot para ' + channel + '.',\n      clientReadyOutput: {\n        crm: 'Chatwoot',\n        channel,\n        deliverable: 'conversacion sincronizada',\n        firstAction: createdConversation\n          ? 'Se abrio una conversacion nueva en Chatwoot con el primer mensaje.'\n          : 'Se reutilizo la conversacion existente y se agrego el mensaje entrante.',\n      },\n      operations: [\n        'contact_id=' + contactId,\n        'conversation_id=' + conversationId,\n        createdConversation ? 'conversation_created=true' : 'message_appended=true',\n      ],\n      nextSteps: [\n        'Verificar la conversacion en Chatwoot y confirmar el owner.',\n        'Responder desde Chatwoot para validar el loop saliente por ' + channel + '.',\n      ],\n      errors: [],\n    },\n  };\n} catch (error) {\n  const message = error instanceof Error ? error.message : String(error);\n  return {\n    json: {\n      ...$json,\n      ok: false,\n      status: 'error',\n      bridgeSummary: 'No pude sincronizar el inbound real en Chatwoot.',\n      clientReadyOutput: {\n        crm: 'Chatwoot',\n        channel,\n        deliverable: 'error operativo',\n        firstAction: 'Revisar credenciales y endpoint de Chatwoot.',\n      },\n      operations: [],\n      nextSteps: ['Corregir credenciales o permisos de Chatwoot y relanzar el webhook.'],\n      errors: [message],\n    },\n  };\n}"
+      },
+      "id": "run-chatwoot-upsert",
+      "name": "Run Chatwoot Upsert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1900,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const clean = (value) => String(value ?? '').trim();\nconst channel = clean($json.channel);\nconst externalId = clean($json.externalId);\nconst messageText = clean($json.messageText);\ntry {\n  let response = null;\n  let externalMessageId = '';\n  if (channel === 'telegram') {\n    response = await this.helpers.httpRequest({\n      method: 'POST',\n      url: 'https://api.telegram.org/bot' + clean($json.telegramBotToken) + '/sendMessage',\n      body: {\n        chat_id: externalId,\n        text: messageText,\n      },\n      json: true,\n      timeout: 60000,\n    });\n    externalMessageId = clean(response?.result?.message_id);\n  } else {\n    response = await this.helpers.httpRequest({\n      method: 'POST',\n      url: 'https://graph.facebook.com/v20.0/' + clean($json.whatsappPhoneNumberId) + '/messages',\n      headers: {\n        Authorization: 'Bearer ' + clean($json.whatsappAccessToken),\n        'Content-Type': 'application/json',\n      },\n      body: {\n        messaging_product: 'whatsapp',\n        to: externalId.replace(/^\\+/, ''),\n        type: 'text',\n        text: {\n          body: messageText,\n        },\n      },\n      json: true,\n      timeout: 60000,\n    });\n    externalMessageId = clean(response?.messages?.[0]?.id);\n  }\n  return {\n    json: {\n      ...$json,\n      ok: true,\n      status: 'ok',\n      externalMessageId,\n      bridgeSummary: 'Mensaje saliente entregado al canal ' + channel + '.',\n      clientReadyOutput: {\n        crm: 'Chatwoot',\n        channel,\n        deliverable: 'mensaje saliente',\n        firstAction: 'Confirmar recepcion en el canal y esperar status callback si aplica.',\n      },\n      operations: [\n        channel === 'telegram' ? 'telegram.sendMessage' : 'whatsapp.cloud.messages.create',\n      ],\n      nextSteps: [\n        'Esperar callback de estado del proveedor si el canal lo soporta.',\n        'Verificar recepcion del lado del contacto.',\n      ],\n      errors: [],\n    },\n  };\n} catch (error) {\n  const message = error instanceof Error ? error.message : String(error);\n  return {\n    json: {\n      ...$json,\n      ok: false,\n      status: 'error',\n      bridgeSummary: 'No pude enviar el mensaje real por ' + channel + '.',\n      clientReadyOutput: {\n        crm: 'Chatwoot',\n        channel,\n        deliverable: 'error operativo',\n        firstAction: 'Revisar credenciales del canal y relanzar el envio.',\n      },\n      operations: [],\n      nextSteps: ['Corregir credenciales del canal y volver a probar el envio.'],\n      errors: [message],\n    },\n  };\n}"
+      },
+      "id": "send-channel-message",
+      "name": "Send Channel Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1900,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const clean = (value) => String(value ?? '').trim();\nconst baseUrl = clean($json.chatwootBaseUrl).replace(/\\/+$/, '');\nconst accountId = clean($json.chatwootAccountId);\nconst apiToken = clean($json.chatwootApiToken);\nconst channel = clean($json.channel) || 'whatsapp';\nconst externalId = clean($json.externalId);\nconst identifierKey = clean($json.identifierKey) || channel + ':' + externalId;\nconst targetInboxId = Number($json.targetInboxId ?? 0);\nconst statusText = clean($json.messageText) || 'status recibido';\nconst request = async (method, endpoint, body) =>\n  this.helpers.httpRequest({\n    method,\n    url: baseUrl + endpoint,\n    headers: {\n      'Content-Type': 'application/json',\n      api_access_token: apiToken,\n    },\n    body,\n    json: true,\n    timeout: 60000,\n  });\ntry {\n  const searchTerms = [...new Set([identifierKey, externalId, externalId.replace(/[^0-9]/g, '')].filter(Boolean))];\n  let contact = null;\n  for (const term of searchTerms) {\n    const searchResult = await request('GET', '/api/v1/accounts/' + accountId + '/contacts/search?q=' + encodeURIComponent(term));\n    const payload = Array.isArray(searchResult?.payload) ? searchResult.payload : Array.isArray(searchResult) ? searchResult : [];\n    contact = payload.find((candidate) => {\n      const candidateIdentifier = clean(candidate?.identifier ?? candidate?.contact_inboxes?.[0]?.source_id);\n      const candidatePhone = clean(candidate?.phone_number);\n      return (\n        candidateIdentifier === identifierKey ||\n        candidateIdentifier === externalId ||\n        candidatePhone === externalId ||\n        candidatePhone.replace(/[^0-9]/g, '') === externalId.replace(/[^0-9]/g, '')\n      );\n    }) ?? payload[0] ?? null;\n    if (contact) break;\n  }\n  const contactId = Number(contact?.id ?? 0);\n  if (!contactId) {\n    throw new Error('No encontre el contacto en Chatwoot para reflejar el estado.');\n  }\n  const conversationsResult = await request(\n    'GET',\n    '/api/v1/accounts/' + accountId + '/contacts/' + contactId + '/conversations'\n  );\n  const conversations = Array.isArray(conversationsResult?.payload) ? conversationsResult.payload : [];\n  const conversation =\n    conversations\n      .filter((entry) => Number(entry?.inbox_id ?? 0) === targetInboxId)\n      .sort(\n        (left, right) =>\n          Number(right?.last_activity_at ?? right?.updated_at ?? 0) -\n          Number(left?.last_activity_at ?? left?.updated_at ?? 0)\n      )[0] ?? null;\n  const conversationId = Number(conversation?.id ?? 0);\n  if (!conversationId) {\n    throw new Error('No encontre una conversacion activa en Chatwoot para reflejar el estado.');\n  }\n  await request(\n    'POST',\n    '/api/v1/accounts/' + accountId + '/conversations/' + conversationId + '/messages',\n    {\n      content: 'Estado externo (' + channel + '): ' + statusText,\n      message_type: 'outgoing',\n      private: true,\n      content_type: 'text',\n    }\n  );\n  return {\n    json: {\n      ...$json,\n      ok: true,\n      status: 'ok',\n      contactId,\n      conversationId,\n      bridgeSummary: 'Estado del canal reflejado en Chatwoot.',\n      clientReadyOutput: {\n        crm: 'Chatwoot',\n        channel,\n        deliverable: 'estado sincronizado',\n        firstAction: 'Revisar la nota privada en la conversacion correspondiente.',\n      },\n      operations: ['chatwoot.private_note'],\n      nextSteps: ['Confirmar si el contacto recibio o leyo el mensaje segun el callback del proveedor.'],\n      errors: [],\n    },\n  };\n} catch (error) {\n  const message = error instanceof Error ? error.message : String(error);\n  return {\n    json: {\n      ...$json,\n      ok: false,\n      status: 'error',\n      bridgeSummary: 'No pude reflejar el estado del canal en Chatwoot.',\n      clientReadyOutput: {\n        crm: 'Chatwoot',\n        channel,\n        deliverable: 'error operativo',\n        firstAction: 'Verificar el mapeo entre externalId y conversacion en Chatwoot.',\n      },\n      operations: [],\n      nextSteps: ['Corregir el mapeo de contacto/conversacion y reintentar la sincronizacion.'],\n      errors: [message],\n    },\n  };\n}"
+      },
+      "id": "sync-chatwoot-status",
+      "name": "Sync Chatwoot Status",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1900,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return {\n  json: {\n    ...$json,\n    ok: true,\n    status: 'ignored',\n    bridgeSummary: 'El evento no requiere accion operativa en el bridge.',\n    clientReadyOutput: {\n      crm: 'Chatwoot',\n      channel: $json.channel || 'crm',\n      deliverable: 'evento ignorado',\n      firstAction: 'Ninguno; solo se descartaron notas, eventos internos o entradas duplicadas.',\n    },\n    operations: ['ignored'],\n    nextSteps: [],\n    errors: [],\n  },\n};"
+      },
+      "id": "ignore-bridge-event",
+      "name": "Ignore Bridge Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1900,
+        660
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return {\n  json: {\n    ...$json,\n    ok: false,\n    status: 'config-error',\n    bridgeSummary: 'El bridge real no puede ejecutarse hasta completar la configuracion requerida.',\n    clientReadyOutput: {\n      crm: 'Chatwoot',\n      channel: $json.channel || 'crm',\n      deliverable: 'configuracion faltante',\n      firstAction: 'Completar variables de entorno y reintentar el webhook.',\n    },\n    operations: [],\n    nextSteps: ['Completar las variables faltantes y volver a disparar el evento.'],\n    errors: Array.isArray($json.configErrors) ? $json.configErrors : ['Configuracion incompleta.'],\n  },\n};"
+      },
+      "id": "return-config-error",
+      "name": "Return Config Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1900,
+        820
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 5
+      },
+      "id": "merge-bridge-result",
+      "name": "Merge Bridge Result",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2180,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const payload = items[0]?.json ?? {};\nreturn [\n  {\n    json: {\n      requestId: payload.requestId ?? 'crm-preview',\n      source: payload.source ?? 'manual',\n      executionSource: payload.executionSource ?? 'manual',\n      sourceSystem: payload.sourceSystem ?? 'chatwoot',\n      channel: payload.channel ?? 'crm',\n      action: payload.action ?? 'ignore-event',\n      crm: payload.crm ?? 'chatwoot',\n      ok: Boolean(payload.ok),\n      status: payload.status ?? (payload.ok ? 'ok' : 'error'),\n      ariaSummary: payload.bridgeSummary ?? 'Bridge CRM procesado.',\n      clientReadyOutput: payload.clientReadyOutput ?? {\n        crm: 'Chatwoot',\n        channel: payload.channel ?? 'crm',\n        deliverable: 'salida operacional',\n        firstAction: 'Revisar el resultado del workflow.',\n      },\n      nextSteps: Array.isArray(payload.nextSteps) ? payload.nextSteps : [],\n      errors: Array.isArray(payload.errors) ? payload.errors : [],\n      operations: Array.isArray(payload.operations) ? payload.operations : [],\n      contactId: payload.contactId ?? null,\n      conversationId: payload.conversationId ?? null,\n      externalMessageId: payload.externalMessageId ?? '',\n      bridge: payload.bridge ?? 'chatwoot-whatsapp-telegram',\n    },\n  },\n];"
+      },
+      "id": "compose-bridge-response",
+      "name": "Compose Bridge Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2460,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{$json.executionSource === 'webhook' ? 1 : 0}}"
+      },
+      "id": "bridge-return-mode",
+      "name": "Return Mode",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        2740,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "resultMode-c35ca3ea",
+              "name": "resultMode",
+              "value": "manual-preview",
+              "type": "string"
+            },
+            {
+              "id": "summarySource-966ab23e",
+              "name": "summarySource",
+              "value": "chatwoot-crm-bridge",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true
+      },
+      "id": "preview-bridge-result",
+      "name": "Preview Result",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        3020,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem"
+      },
+      "id": "respond-bridge-webhook",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        3020,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "whatsappVerifyToken-b36cd3ff",
+              "name": "whatsappVerifyToken",
+              "value": "={{$env.WHATSAPP_VERIFY_TOKEN || ''}}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true
+      },
+      "id": "load-verify-config",
+      "name": "Load Verify Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        520,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const query = $json.query && typeof $json.query === 'object' ? $json.query : {};\nconst mode = String(query['hub.mode'] ?? '');\nconst challenge = String(query['hub.challenge'] ?? '');\nconst verifyToken = String(query['hub.verify_token'] ?? '');\nconst expectedToken = String($json.whatsappVerifyToken ?? '');\nconst verified = mode === 'subscribe' && Boolean(expectedToken) && verifyToken === expectedToken;\nreturn {\n  json: {\n    verified,\n    responseText: verified ? challenge : 'invalid verification token',\n  },\n};"
+      },
+      "id": "validate-whatsapp-verify",
+      "name": "Validate WhatsApp Verify",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{$json.responseText}}"
+      },
+      "id": "respond-whatsapp-verify",
+      "name": "Respond WhatsApp Verify",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1080,
+        280
+      ]
+    }
+  ],
+  "connections": {
+    "Chatwoot Events": {
+      "main": [
+        [
+          {
+            "node": "Normalize Bridge Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WhatsApp Inbound": {
+      "main": [
+        [
+          {
+            "node": "Normalize Bridge Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Inbound": {
+      "main": [
+        [
+          {
+            "node": "Normalize Bridge Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Sample Bridge Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sample Bridge Event": {
+      "main": [
+        [
+          {
+            "node": "Normalize Bridge Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Bridge Event": {
+      "main": [
+        [
+          {
+            "node": "Load Runtime Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Runtime Config": {
+      "main": [
+        [
+          {
+            "node": "Validate Bridge Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Bridge Config": {
+      "main": [
+        [
+          {
+            "node": "Route Bridge Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Bridge Action": {
+      "main": [
+        [
+          {
+            "node": "Run Chatwoot Upsert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Channel Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Sync Chatwoot Status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ignore Bridge Event",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Return Config Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Chatwoot Upsert": {
+      "main": [
+        [
+          {
+            "node": "Merge Bridge Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Channel Message": {
+      "main": [
+        [
+          {
+            "node": "Merge Bridge Result",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Sync Chatwoot Status": {
+      "main": [
+        [
+          {
+            "node": "Merge Bridge Result",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Ignore Bridge Event": {
+      "main": [
+        [
+          {
+            "node": "Merge Bridge Result",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "Return Config Error": {
+      "main": [
+        [
+          {
+            "node": "Merge Bridge Result",
+            "type": "main",
+            "index": 4
+          }
+        ]
+      ]
+    },
+    "Merge Bridge Result": {
+      "main": [
+        [
+          {
+            "node": "Compose Bridge Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compose Bridge Response": {
+      "main": [
+        [
+          {
+            "node": "Return Mode",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Return Mode": {
+      "main": [
+        [
+          {
+            "node": "Preview Result",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WhatsApp Verify": {
+      "main": [
+        [
+          {
+            "node": "Load Verify Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Verify Config": {
+      "main": [
+        [
+          {
+            "node": "Validate WhatsApp Verify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate WhatsApp Verify": {
+      "main": [
+        [
+          {
+            "node": "Respond WhatsApp Verify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "chatwootBridge": true,
+    "freeOnly": false
+  },
+  "active": true,
+  "description": "Bridge real para conectar Chatwoot con WhatsApp Cloud API y Telegram Bot API, validando credenciales, webhooks y errores operativos sin mockear respuestas."
+}

@@ -254,8 +254,13 @@ export default function Terminal({ agents, teamModeEnabled, onCommand }: Props) 
             )}
           </div>
           {allLogs.length === 0 && (
-            <div className="text-white/20 italic pt-2">
-              Esperando un pedido real para ARIA y sus especialistas...
+            <div className="pt-2">
+              <div className="text-cyan-300/80 text-[12px] font-medium">
+                Hola, soy ARIA. Contame que queres construir y coordino al equipo por vos.
+              </div>
+              <div className="mt-1 text-white/25 italic">
+                Podés pedir una web, una landing, un portal operativo o una automatizacion y lo resolvemos desde aca.
+              </div>
             </div>
           )}
           {allLogs.map((log) => (
@@ -304,7 +309,7 @@ export default function Terminal({ agents, teamModeEnabled, onCommand }: Props) 
               { cmd: "/dismiss", label: "Reset visual" },
               { cmd: "Definí la oferta alpha de este orquestador y un mensaje comercial corto.", label: "Oferta alpha" },
               { cmd: "Investigá un prospecto y redactá un mensaje de entrada.", label: "Prospeccion" },
-              { cmd: "Convertí este alpha en una demo funcional con n8n.", label: "Demo n8n" },
+              { cmd: "Quiero que el agente me cree una landing competitiva con n8n y deje lista la propuesta visual.", label: "Crear web" },
               { cmd: "Investigá la competencia de este producto.", label: "Scout" },
               { cmd: "Revisá el backend y detectá la superficie mínima a tocar.", label: "Apex" },
               { cmd: "Investigá este frente y definí una estrategia concreta.", label: "2 Agentes" },
@@ -335,7 +340,7 @@ export default function Terminal({ agents, teamModeEnabled, onCommand }: Props) 
               value={input}
               maxLength={MAX_COMMAND_LENGTH}
               onChange={(e) => setInput(sanitizeCommandInput(e.target.value))}
-              placeholder="Hablá con ARIA directamente. Ella decide si responde sola o si activa otros agentes..."
+              placeholder="Hola, soy ARIA. Decime que queres crear y, si hace falta, disparo n8n desde aca..."
               className="flex-1 bg-transparent font-mono text-[12px] focus:outline-none placeholder:text-white/20"
               style={{ color: "#e2e8f0" }}
             />

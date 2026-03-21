@@ -10,6 +10,7 @@
       },
       "id": "aria-webhook",
       "name": "Incoming Request",
+      "webhookId": "aria-webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
       "position": [
@@ -73,7 +74,9 @@
     {
       "parameters": {
         "source": "database",
-        "workflowId": "={{$json.workflowId}}",
+        "workflowId": {
+          "value": "={{$json.workflowId}}"
+        },
         "mode": "each",
         "options": {
           "waitForSubWorkflow": true
@@ -134,7 +137,9 @@
     {
       "parameters": {
         "source": "database",
-        "workflowId": "={{$json.workflowId}}",
+        "workflowId": {
+          "value": "={{$json.workflowId}}"
+        },
         "mode": "each",
         "options": {
           "waitForSubWorkflow": true
@@ -211,13 +216,13 @@
         "assignments": {
           "assignments": [
             {
-              "id": "resultMode-d6b0e519",
+              "id": "resultMode-00b91954",
               "name": "resultMode",
               "value": "manual-preview",
               "type": "string"
             },
             {
-              "id": "summarySource-d621aa2a",
+              "id": "summarySource-3022be56",
               "name": "summarySource",
               "value": "oracle-aria-preview",
               "type": "string"

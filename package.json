@@ -14,6 +14,7 @@
     "n8n:demo": "node ./scripts/print-office-ai-alpha-demo.mjs",
     "n8n:sync:office": "node --experimental-sqlite ./scripts/sync-office-ai-workflows.mjs",
     "n8n:sync:oracle": "node --experimental-sqlite ./scripts/sync-oracle-ai-workflows.mjs",
+    "n8n:sync:crm": "node --experimental-sqlite ./scripts/sync-crm-workflows.mjs",
     "worker": "node --experimental-strip-types ./scripts/run-office-ai-worker.ts"
   },
   "dependencies": {

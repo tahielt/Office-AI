@@ -6,7 +6,7 @@ import AgentSidebar from "@/components/ui/AgentSidebar";
 import Terminal from "@/components/ui/Terminal";
 
 export default function Home() {
-  const { agents, metrics, teamModeEnabled, orchestratorRefreshKey, handleCommand, handleN8nDemo, n8nDemoStatus, n8nDemoMessage } = useAgents();
+  const { agents, metrics, teamModeEnabled, orchestratorRefreshKey, handleCommand } = useAgents();
 
   return (
     <main className="h-screen w-screen flex flex-col overflow-hidden text-white font-sans text-sm"
@@ -23,9 +23,6 @@ export default function Home() {
               teamModeEnabled={teamModeEnabled}
               orchestratorRefreshKey={orchestratorRefreshKey}
               onRunPrompt={handleCommand}
-              onRunN8nDemo={handleN8nDemo}
-              n8nDemoStatus={n8nDemoStatus}
-              n8nDemoMessage={n8nDemoMessage}
             />
           </div>
         </div>
