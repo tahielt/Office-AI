@@ -6,7 +6,7 @@ import AgentSidebar from "@/components/ui/AgentSidebar";
 import Terminal from "@/components/ui/Terminal";
 
 export default function Home() {
-  const { agents, metrics, teamModeEnabled, orchestratorRefreshKey, handleCommand, handleN8nDemo, n8nDemoStatus, n8nDemoMessage } = useAgents();
+  const { agents, metrics, teamModeEnabled, orchestratorRefreshKey, handleCommand, handleN8nDemo, n8nDemoStatus, n8nDemoMessage, liveStream, liveTokens, agentProviders } = useAgents();
 
   return (
     <main className="h-screen w-screen flex flex-col overflow-hidden text-white font-sans text-sm"
@@ -42,7 +42,7 @@ export default function Home() {
 
         {/* Terminal — altura dinámica por resize interno */}
         <div className="shrink-0 px-3 pt-2 pb-3">
-          <Terminal agents={agents} teamModeEnabled={teamModeEnabled} onCommand={handleCommand} />
+          <Terminal agents={agents} teamModeEnabled={teamModeEnabled} onCommand={handleCommand} liveStream={liveStream} liveTokens={liveTokens} agentProviders={agentProviders} />
         </div>
       </div>
     </main>

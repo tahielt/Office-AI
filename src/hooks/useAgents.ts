@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import { INITIAL_AGENTS, getInitialMetrics } from "@/lib/agents";
 import { Agent, AgentAnimation, AgentLane, AgentStatus, AgentZone, SystemMetrics, TeamAssignment } from "@/types/agent";
@@ -84,7 +84,17 @@ type OrchestratorStepPayload = {
     url: string;
     snippet: string;
   }>;
+  usage?: { promptTokens: number; completionTokens: number };
 };
+
+type OrchestratorStreamEventPayload =
+  | { type: "run_start"; runId: string; sessionId: string }
+  | { type: "plan"; runId: string; task: string; delegatedAgents: string[]; reason: string }
+  | { type: "step_start"; runId: string; agentId: string; lane?: AgentLane; statusDetail?: string }
+  | { type: "token"; runId: string; agentId: string; delta: string }
+  | { type: "step_complete"; runId: string; step: OrchestratorStepPayload }
+  | { type: "run_complete"; runId: string; steps: OrchestratorStepPayload[]; trace: OrchestratorSuccessPayload["trace"] }
+  | { type: "run_error"; runId: string; error: string; steps: OrchestratorStepPayload[]; trace: OrchestratorSuccessPayload["trace"] };
 
 type OrchestratorSuccessPayload = {
   runId?: string;
@@ -163,6 +173,14 @@ function getNextTeamModeValue(cmd: string, currentValue: boolean) {
 }
 
 function estimateTokenUnits(steps: OrchestratorStepPayload[]) {
+  // Si los pasos traen usage real del modelo (prompt+completion), lo usamos.
+  // Si no (pasos stub o providers sin usage), caemos a la estimación por chars.
+  const realTokens = steps.reduce(
+    (total, step) => total + (step.usage ? step.usage.promptTokens + step.usage.completionTokens : 0),
+    0
+  );
+  if (realTokens > 0) return realTokens;
+
   const characters = steps.reduce(
     (total, step) =>
       total +
@@ -177,6 +195,54 @@ function estimateTokenUnits(steps: OrchestratorStepPayload[]) {
 
 function compactTeamSummary(assignments: TeamAssignment[]) {
   return `Squad activo: ${assignments.map((assignment) => assignment.subAgentName).join(", ")}`;
+}
+
+/**
+ * Consume el cuerpo SSE del orquestador, dispara onToken por cada delta y
+ * reconstruye el mismo payload {runId, steps, trace} que devolvía el modo JSON,
+ * para que el resto del hook procese los steps sin cambios.
+ */
+async function consumeOrchestratorStream(
+  body: ReadableStream<Uint8Array>,
+  handlers: { onToken: (agentId: string, delta: string) => void }
+): Promise<OrchestratorSuccessPayload & OrchestratorErrorPayload> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let result: OrchestratorSuccessPayload & OrchestratorErrorPayload = {};
+
+  const handleEvent = (event: OrchestratorStreamEventPayload) => {
+    if (event.type === "token") {
+      handlers.onToken(event.agentId.toLowerCase(), event.delta);
+    } else if (event.type === "run_complete") {
+      result = { runId: event.runId, steps: event.steps, trace: event.trace };
+    } else if (event.type === "run_error") {
+      result = { runId: event.runId, steps: event.steps, trace: event.trace, error: event.error };
+    }
+  };
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let boundary = buffer.indexOf("\n\n");
+    while (boundary >= 0) {
+      const rawEvent = buffer.slice(0, boundary).trim();
+      buffer = buffer.slice(boundary + 2);
+      boundary = buffer.indexOf("\n\n");
+      if (!rawEvent.startsWith("data:")) continue;
+      const data = rawEvent.slice(5).trim();
+      if (!data || data === "[DONE]") continue;
+      try {
+        handleEvent(JSON.parse(data) as OrchestratorStreamEventPayload);
+      } catch {
+        // evento parcial o malformado: lo ignoramos
+      }
+    }
+  }
+
+  return result;
 }
 
 function buildStandbyAgent(agent: Agent): Agent {
@@ -233,6 +299,17 @@ export function useAgents() {
   const [n8nDemoStatus, setN8nDemoStatus] = useState<"idle" | "running" | "success" | "error">("idle");
   const [n8nDemoMessage, setN8nDemoMessage] = useState<string | null>(null);
   const [orchestratorRefreshKey, setOrchestratorRefreshKey] = useState(0);
+  // sessionId estable mientras viva el componente: habilita la memoria de
+  // conversación del orquestador (cada turno se persiste bajo este id).
+  const sessionIdRef = useRef<string>(
+    `web-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+  );
+  // Texto en vivo por agente mientras el modelo genera (clave = agentId).
+  const [liveStream, setLiveStream] = useState<Record<string, string>>({});
+  // Tokens consumidos en el run en curso, para el indicador en vivo de la terminal.
+  const [liveTokens, setLiveTokens] = useState(0);
+  // Provider del último step por agente (ollama/openai/groq/gemini/stub), para el badge en la terminal.
+  const [agentProviders, setAgentProviders] = useState<Record<string, string>>({});
 
   const handleCommand = useCallback(async (cmd: string) => {
     const trimmedCommand = cmd.trim();
@@ -317,6 +394,9 @@ export function useAgents() {
       requestsPerMin: prev.requestsPerMin + 1,
     }));
 
+    setLiveStream({});
+    setLiveTokens(0);
+
     try {
       const res = await fetch("/api/orchestrator", {
         method: "POST",
@@ -324,22 +404,47 @@ export function useAgents() {
         body: JSON.stringify({
           prompt: trimmedCommand,
           teamMode: teamModeEnabled,
+          sessionId: sessionIdRef.current,
+          stream: true,
           currentAgents: agents.map((agent) => ({ id: agent.id, name: agent.name, role: agent.role })),
         }),
       });
 
-      const payload = (await res.json().catch(() => null)) as
+      if (!res.ok || !res.body) {
+        const errorBody = (await res.json().catch(() => null)) as OrchestratorErrorPayload | null;
+        throw new Error(errorBody?.error || "Error al conectar con el orquestador");
+      }
+
+      const payload = (await consumeOrchestratorStream(res.body, {
+        onToken: (agentId, delta) => {
+          setLiveStream((prev) => ({ ...prev, [agentId]: (prev[agentId] ?? "") + delta }));
+          setLiveTokens((prev) => prev + Math.max(1, Math.round(delta.length / 4)));
+        },
+      })) as
         | (OrchestratorSuccessPayload & OrchestratorErrorPayload)
         | null;
 
-      if (!res.ok) {
-        throw new Error(payload?.error || "Error al conectar con el orquestador");
+      if (payload?.error) {
+        throw new Error(payload.error);
       }
 
       const steps = payload?.steps ?? [];
       if (steps.length === 0) {
         throw new Error("El orquestador no devolvió pasos ejecutables");
       }
+
+      // El run terminó: el texto final ya viene en los steps, limpiamos el buffer en vivo.
+      setLiveStream({});
+
+      // Registramos el provider del último step de cada agente para el badge.
+      setAgentProviders(() => {
+        const map: Record<string, string> = {};
+        for (const step of steps) {
+          const id = normalizeTargetId(step.agentId.toLowerCase(), agents);
+          if (id) map[id] = step.provider;
+        }
+        return map;
+      });
 
       const touchedAgents = new Set(
         steps
@@ -438,6 +543,7 @@ export function useAgents() {
       );
 
       setMetrics((prev) => ({ ...prev, activeTasks: 0 }));
+      setLiveStream({});
     } finally {
       setOrchestratorRefreshKey((prev) => prev + 1);
     }
@@ -630,5 +736,5 @@ export function useAgents() {
     }
   }, []);
 
-  return { agents, metrics, teamModeEnabled, orchestratorRefreshKey, handleCommand, handleN8nDemo, n8nDemoStatus, n8nDemoMessage };
+  return { agents, metrics, teamModeEnabled, orchestratorRefreshKey, handleCommand, handleN8nDemo, n8nDemoStatus, n8nDemoMessage, liveStream, liveTokens, agentProviders };
 }

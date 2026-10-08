@@ -4,8 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",
+    "dev:sqlite": "node --experimental-sqlite node_modules/next/dist/bin/next dev --webpack",
     "build": "next build --webpack",
     "start": "next start",
+    "check": "tsc --noEmit && eslint . --ignore-pattern n8n/.cache --ignore-pattern n8n/.n8n",
     "lint": "eslint . --ignore-pattern n8n/.cache --ignore-pattern n8n/.n8n",
     "typecheck": "tsc --noEmit",
     "n8n": "powershell -ExecutionPolicy Bypass -File ./scripts/start-n8n-repo.ps1",

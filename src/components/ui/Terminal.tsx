@@ -7,6 +7,22 @@ interface Props {
   agents: Agent[];
   teamModeEnabled: boolean;
   onCommand: (cmd: string) => void;
+  liveStream?: Record<string, string>;
+  liveTokens?: number;
+  agentProviders?: Record<string, string>;
+}
+
+const PROVIDER_STYLE: Record<string, { label: string; color: string }> = {
+  ollama: { label: "OLLAMA", color: "#00f5ff" },
+  openai: { label: "OPENAI", color: "#74e8a0" },
+  groq: { label: "GROQ", color: "#ff9d5c" },
+  gemini: { label: "GEMINI", color: "#a78bfa" },
+  stub: { label: "STUB", color: "#ffffff66" },
+};
+
+function providerBadge(provider?: string) {
+  if (!provider) return null;
+  return PROVIDER_STYLE[provider] ?? { label: provider.toUpperCase(), color: "#ffffff88" };
 }
 
 const MIN_HEIGHT = 48;   // colapsado — solo header
@@ -41,7 +57,7 @@ function compactLogText(text: string, type: "system" | "communication" | "comman
   return joined.length <= max ? joined : `${joined.slice(0, max - 1).trim()}…`;
 }
 
-export default function Terminal({ agents, teamModeEnabled, onCommand }: Props) {
+export default function Terminal({ agents, teamModeEnabled, onCommand, liveStream = {}, liveTokens = 0, agentProviders = {} }: Props) {
   const [input, setInput] = useState("");
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -66,11 +82,18 @@ export default function Terminal({ agents, teamModeEnabled, onCommand }: Props) 
     .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
     .slice(-12);
 
+  // Agentes que están emitiendo tokens ahora mismo (texto parcial en vivo).
+  const streamingEntries = agents
+    .map((agent) => ({ agent, text: liveStream[agent.id] ?? "" }))
+    .filter((entry) => entry.text.trim().length > 0);
+
+  const liveSignature = streamingEntries.map((entry) => `${entry.agent.id}:${entry.text.length}`).join("|");
+
   useEffect(() => {
     if (endRef.current && !isCollapsed) {
       endRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [allLogs, isCollapsed]);
+  }, [allLogs, liveSignature, isCollapsed]);
 
   // ── Drag to resize ──
   const onMouseDown = useCallback((e: React.MouseEvent) => {
@@ -191,23 +214,40 @@ export default function Terminal({ agents, teamModeEnabled, onCommand }: Props) 
                 En espera
               </span>
             )}
-            {engagedAgents.map((agent) => (
-              <span
-                key={agent.id}
-                className="text-[8px] font-mono tracking-[0.18em] px-1.5 py-0.5 rounded-sm"
-                style={{
-                  color: agent.color,
-                  background: `${agent.color}14`,
-                  border: `1px solid ${agent.color}30`,
-                  boxShadow: `0 0 8px ${agent.color}18`,
-                }}
-              >
-                {agent.name}
-              </span>
-            ))}
+            {engagedAgents.map((agent) => {
+              const badge = providerBadge(agentProviders[agent.id]);
+              return (
+                <span
+                  key={agent.id}
+                  className="text-[8px] font-mono tracking-[0.18em] px-1.5 py-0.5 rounded-sm inline-flex items-center gap-1"
+                  style={{
+                    color: agent.color,
+                    background: `${agent.color}14`,
+                    border: `1px solid ${agent.color}30`,
+                    boxShadow: `0 0 8px ${agent.color}18`,
+                  }}
+                >
+                  {agent.name}
+                  {badge && (
+                    <span style={{ color: badge.color, opacity: 0.85 }} className="text-[7px]">
+                      ·{badge.label}
+                    </span>
+                  )}
+                </span>
+              );
+            })}
           </div>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
+          {liveTokens > 0 && (
+            <span
+              className="text-[8px] font-mono tracking-[0.16em] px-1.5 py-0.5 rounded-sm"
+              style={{ color: "#00f5ff", background: "rgba(0,245,255,0.1)", border: "1px solid rgba(0,245,255,0.25)" }}
+              title="Tokens generados en el run en curso (estimado en vivo)"
+            >
+              ~{liveTokens} tok
+            </span>
+          )}
           <button
             onClick={toggleMaximize}
             className="w-6 h-6 flex items-center justify-center rounded hover:bg-white/10 transition-colors"
@@ -291,6 +331,22 @@ export default function Terminal({ agents, teamModeEnabled, onCommand }: Props) 
               )}
             </div>
           ))}
+          {streamingEntries.map((entry) => {
+            const badge = providerBadge(agentProviders[entry.agent.id]);
+            return (
+              <div key={`live-${entry.agent.id}`} className="flex gap-2">
+                <span className="text-white/20 shrink-0 select-none">···</span>
+                <span style={{ color: entry.agent.color }} className="font-medium">
+                  <span style={{ color: entry.agent.color, opacity: 0.7 }}>
+                    [{entry.agent.name}
+                    {badge ? ` · ${badge.label}` : ""}]
+                  </span>{" "}
+                  <span className="text-white/85">{entry.text}</span>
+                  <span className="inline-block w-1.5 h-3 ml-0.5 align-middle animate-pulse" style={{ background: entry.agent.color }} />
+                </span>
+              </div>
+            );
+          })}
           <div ref={endRef} />
         </div>
       )}
